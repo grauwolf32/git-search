@@ -1,0 +1,1 @@
+create table github_reports (id serial, shahash varchar, status varchar, keyword varchar, owner varchar, info jsonb, url varchar, time integer);
