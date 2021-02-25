@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"../config"
+	"../database"
 	//"log"
 	//"golang.org/x/time/rate"
 )
@@ -46,7 +47,7 @@ type GitReport struct {
 	SearchItem GitSearchItem
 	Query      string
 	Status     string
-	Time       int32
+	Time       int64
 }
 
 type GitDBManager struct {
@@ -84,11 +85,11 @@ func (gitDBManager *GitDBManager) insert(report GitReport) error {
 		return err
 	}
 
-	_, err = gitDBManager.Database.Exec("INSERT INTO github_report (shahash, status, keyword, owner, info json, url, time) VALUES ($1, $2, $3, $4, $5, $6, $7);",
+	_, err = gitDBManager.Database.Exec("INSERT INTO github_reports (shahash, status, keyword, owner, info, url, time) VALUES ($1, $2, $3, $4, $5, $6, $7);",
 		item.ShaHash,
 		report.Status,
 		report.Query,
-		item.Repo.Owner,
+		item.Repo.Owner.Login,
 		info,
 		item.GitUrl,
 		report.Time)
@@ -119,11 +120,30 @@ func processSearchJob(query string) { //DB *sql.DB, query string) {
 		return
 	}
 
-	fmt.Printf("%v", githubResponse)
+	//fmt.Printf("%v", githubResponse)
+
+	dbManager := GitDBManager{database.DB}
+
+	for _, gihubResponseItem := range githubResponse.Items {
+		var githubReport GitReport
+		githubReport.SearchItem = gihubResponseItem
+		githubReport.Status = "Processing"
+		githubReport.Query = query
+		githubReport.Time = time.Now().Unix()
+
+		err = dbManager.insert(githubReport)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+	}
+
 }
 
 func main() {
 	config.StartInit()
-	//database.Connect()
+	database.Connect()
+	defer database.DB.Close()
+
 	processSearchJob("rambler-co")
 }
