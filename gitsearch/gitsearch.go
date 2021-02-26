@@ -3,9 +3,11 @@ package main
 import (
 	"fmt"
 	"bytes"
+	"sync"
 	"context"
 	"database/sql"
 	"encoding/json"
+	"encoding/base64"
 	"io/ioutil"
 	"net/http"
 	"time"
@@ -38,6 +40,11 @@ type GitSearchItem struct {
 	Score   float32 `json:"score"`
 }
 
+type GitFetchItem struct{
+	Content []bytes `json:"content"`
+	Encoding string `json:"encoding"`
+}
+
 type GitSearchApiResponse struct {
 	TotalCount        int             `json:"total_count"`
 	IncompleteResults bool            `json:"incomplete_results"`
@@ -49,6 +56,12 @@ type GitReport struct {
 	Query      string
 	Status     string
 	Time       int64
+}
+
+type GitReportProc struct{
+	ReportId int,
+	Keyword  string,
+	Url		 string
 }
 
 type GitDBManager struct {
@@ -82,6 +95,15 @@ func buildGitSearchRequest(query string, offset int) (*http.Request, error) {
 	return req, err
 }
 
+func buildFetchRequest(url string)(*http.Request, error){
+	var requestBody bytes.Buffer
+	req, err := http.NewRequest("GET", url, &requestBody)
+	if err != nil {
+		return &http.Request{}, err
+	}
+	return req, err
+}
+
 func (gitDBManager *GitDBManager) insert(report GitReport) error {
 	item := report.SearchItem
 	info, err := json.Marshal(item)
@@ -101,8 +123,6 @@ func (gitDBManager *GitDBManager) insert(report GitReport) error {
 
 	return err
 }
-
-
 
 func processSearchJob(query string)(err error) { //DB *sql.DB, query string) {
 	req, err := buildGitSearchRequest(query, 0)
@@ -149,27 +169,77 @@ func processSearchJob(query string)(err error) { //DB *sql.DB, query string) {
 	return err
 }
 
+func processTextFragment(text string, before, after, lines int)(fragments []string, err error){
+	
+}
+
 func processReportJob()(err error){
 	dbManager := GitDBManager{database.DB}
 	rows, err := dbManager.Database.Query("SELECT id, keyword, url FROM github_reports WHERE status=$1 ORDER BY time;", "Processing")
-	//ctx := context.Background()
-	//rl  := rate.NewLimiter(rate.Every(time.Minute), config.Settings.Github.FetchRateLimit)
-	//
-
 	if err != nil{
 		return err
 	}
+	
+	ctx := context.Background()
+	rl  := rate.NewLimiter(rate.Every(time.Minute), config.Settings.Github.FetchRateLimit)
+	
+	/*
+	maxChanCap := 4096
+	jobs := make(chan *GitReportProc, maxChanCap)
+	errchan := make(chan error, maxChanCap)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	
+	go func(ctx context.Context, rl *rate.Limiter, wg *sync.WaitGroup, jobs chan *GitReportProc, errchan chan error ){
+		for _, gitReportData := range(jobs){
+			req, err  := buildFetchRequest(url)
+			resp, err := doRequest(ctx, req, rl)
+
+			if resp.StatusCode != 200 {
+				<- time.After(15*time.Second)
+
+			}
+		}
+		wg.Done()
+	}
+	*/
 
 	for rows.Next(){
 		var id int
 		var keyword, url string
+		
 		err = rows.Scan(&id, &keyword, &url)
 		if err != nil {
 			fmt.Println(err)
 			return err
 		}
+
+		req, err  := buildFetchRequest(url)
+		resp, err := doRequest(ctx, req, rl)
+		body, err := ioutil.ReadAll(resp.Body)
 		
-		fmt.Printf("%d %s %s\n", id, keyword, url)
+		if resp.StatusCode != 200 {
+			<- time.After(15*time.Second)
+			fmt.Printf("%d %s\n\n", resp.StatusCode, string(body))
+		} else {
+			var gitFetchItem GitFetchItem
+			err := json.Unmarshal(body,&gitFetchItem)
+			if err != nil{
+				fmt.Println(err)
+				continue
+			}
+
+			if gitFetchItem.Encoding == "base64" {
+				decoded, err := b64.StdEncoding.DecodeString(gitFetchItem.Content)
+				if err != nil{
+					fmt.Println(err)
+				}
+
+			} else {
+				fmt.Printf("Unknown encoding: %s\n", gitFetchItem.Encoding)
+			}
+		}
 	}
 	
 	return err
