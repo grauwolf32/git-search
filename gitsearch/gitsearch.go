@@ -154,6 +154,7 @@ func processReportJob()(err error){
 	rows, err := dbManager.Database.Query("SELECT id, keyword, url FROM github_reports WHERE status=$1 ORDER BY time;", "Processing")
 	//ctx := context.Background()
 	//rl  := rate.NewLimiter(rate.Every(time.Minute), config.Settings.Github.FetchRateLimit)
+	//
 
 	if err != nil{
 		return err
