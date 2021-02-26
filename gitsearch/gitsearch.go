@@ -1,18 +1,19 @@
 package main
 
 import (
+	"fmt"
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
 	"net/http"
 	"time"
 
 	"../config"
 	"../database"
-	//"log"
-	//"golang.org/x/time/rate"
+	"golang.org/x/time/rate"
+	//"log"	
 )
 
 type GitRepoOwner struct {
@@ -54,9 +55,13 @@ type GitDBManager struct {
 	Database *sql.DB
 }
 
-func doRequest(req *http.Request) (resp *http.Response, err error) {
+func doRequest(ctx context.Context, req *http.Request, rl* rate.Limiter) (resp *http.Response, err error) {
 	client := http.Client{
 		Timeout: time.Duration(5 * time.Second),
+	}
+    err = rl.Wait(ctx)
+	if err != nil{
+		return nil, err
 	}
 
 	resp, err = client.Do(req)
@@ -103,7 +108,9 @@ func processSearchJob(query string) { //DB *sql.DB, query string) {
 		return
 	}
 
-	resp, err := doRequest(req)
+	ctx := context.Background()
+    rl  := rate.NewLimiter(rate.Every(time.Minute), config.Settings.Github.RateLimit)
+	resp, err := doRequest(ctx, req, rl)
 	if err != nil {
 		return
 	}
