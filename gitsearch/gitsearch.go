@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/OWASP/Amass/config"
 	"fmt"
 	"bytes"
 	"sync"
@@ -68,20 +69,16 @@ type GitDBManager struct {
 	Database *sql.DB
 }
 
-func doRequest(ctx context.Context, req *http.Request, rl* rate.Limiter) (resp *http.Response, err error) {
+func doRequest(req *http.Request) (resp *http.Response, err error) {
 	client := http.Client{
 		Timeout: time.Duration(5 * time.Second),
-	}
-    err = rl.Wait(ctx)
-	if err != nil{
-		return nil, err
 	}
 
 	resp, err = client.Do(req)
 	return resp, err
 }
 
-func buildGitSearchRequest(query string, offset int) (*http.Request, error) {
+func buildGitSearchRequest(query string, offset int, token string) (*http.Request, error) {
 	var requestBody bytes.Buffer
 	url := fmt.Sprintf(config.Settings.Github.SearchAPIUrl, query, offset)
 	req, err := http.NewRequest("GET", url, &requestBody)
@@ -90,7 +87,7 @@ func buildGitSearchRequest(query string, offset int) (*http.Request, error) {
 		return &http.Request{}, err
 	}
 
-	req.Header.Set("Authorization", "token "+config.Settings.Github.Tokens[0])
+	req.Header.Set("Authorization", "token " + token)
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
 	return req, err
 }
@@ -122,6 +119,103 @@ func (gitDBManager *GitDBManager) insert(report GitReport) error {
 		report.Time)
 
 	return err
+}
+
+func ProcessSearchResponse(query string, resp *http.Response, errchan chan error)(err error){
+	dbManager := GitDBManager{database.DB}
+	var githubResponse GitSearchApiResponse
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	err = json.Unmarshal(body, &githubResponse)
+	if err != nil {
+		return err
+	}
+
+	for _, gihubResponseItem := range githubResponse.Items {
+		var githubReport GitReport
+		githubReport.SearchItem = gihubResponseItem
+		githubReport.Status = "processing"
+		githubReport.Query = query
+		githubReport.Time = time.Now().Unix()
+
+		inertionError := dbManager.insert(githubReport)
+		if inertionError != nil{
+			errchan <- inertionError
+		}
+	}
+
+	return err
+}
+
+func GithubSearchWorker(query string, id int, wg *sync.WaitGroup, jobchan chan int, errchan chan error){
+	defer wg.Done()
+	ctx := context.Background()
+	rl  := rate.NewLimiter(rate.Every(time.Minute), config.Settings.Github.SearchRateLimit)
+
+	for offset := range(jobchan){
+		token := config.Settings.Github.Tokens[id]
+		req, _ := buildGitSearchRequest(query, offset, token)
+
+		_ = rl.Wait(ctx)
+		resp, err := doRequest(req)
+		if err != nil {
+			errchan <- err
+			return
+		}
+		
+		if resp.StatusCode == 200{
+			err := ProcessSearchResponse(query, resp)
+			if err != nil{
+				errchan <- err
+				return
+			}
+		} else {
+			<- time.After(15*time.Second)
+			jobchan <- offset
+		}
+	}
+}
+
+func processSearchJob2(query string)(err error){
+	n := len(config.Settings.Github.Tokens)
+	errchan := make(chan error, 128)
+	jobchan := make(chan int, 128)
+	var wg sync.WaitGroup
+
+	req, err := buildGitSearchRequest(query, 0)
+	if err != nil {
+		return err
+	}
+
+	resp, err := doRequest(req)
+
+	if err != nil {
+		return err
+	}
+
+	wg.Add(1)
+	go func(errchan chan error){
+		defer wg.Done()
+		select{
+			case <-errchan:{
+				fmt.Println(err)	
+			}
+			case <-finish:{
+				return
+			}
+			default:
+		}
+	}
+
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		DoGithubSearchRequests(query, i, wg, jobchan, errchan)
+	}
+
 }
 
 func processSearchJob(query string)(err error) { //DB *sql.DB, query string) {

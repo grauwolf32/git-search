@@ -5,6 +5,7 @@ package config
 type InitStruct struct {
 	Github           GithubSetting 
 	DBCredentials    DBCredentialsSetting
+	Secrets          SecretsConfig
 }
 
 type DBCredentialsSetting struct {
@@ -14,7 +15,7 @@ type DBCredentialsSetting struct {
 }
 
 type GithubSetting struct {
-	Tokens       []string `json:"token"`
+	Tokens       []string `json:"tokens"`
 	SearchAPIUrl   string `json:"search_api"`
 	SearchRateLimit	   int    `json:"search_rate_limit"`
 	FetchRateLimit	   int	  `json:"fetch_rate_limit"`
