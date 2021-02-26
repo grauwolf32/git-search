@@ -16,7 +16,8 @@ type DBCredentialsSetting struct {
 type GithubSetting struct {
 	Tokens       []string `json:"token"`
 	SearchAPIUrl   string `json:"search_api"`
-	RateLimit	   int    `json:"rate_limit"`
+	SearchRateLimit	   int    `json:"search_rate_limit"`
+	FetchRateLimit	   int	  `json:"fetch_rate_limit"`
 }
 
 type SecretsConfig struct {

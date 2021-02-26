@@ -102,29 +102,31 @@ func (gitDBManager *GitDBManager) insert(report GitReport) error {
 	return err
 }
 
-func processSearchJob(query string) { //DB *sql.DB, query string) {
+
+
+func processSearchJob(query string)(err error) { //DB *sql.DB, query string) {
 	req, err := buildGitSearchRequest(query, 0)
 	if err != nil {
-		return
+		return err
 	}
 
 	ctx := context.Background()
-    rl  := rate.NewLimiter(rate.Every(time.Minute), config.Settings.Github.RateLimit)
+    rl  := rate.NewLimiter(rate.Every(time.Minute), config.Settings.Github.SearchRateLimit)
 	resp, err := doRequest(ctx, req, rl)
 	if err != nil {
-		return
+		return err
 	}
 
 	defer resp.Body.Close()
 	var githubResponse GitSearchApiResponse
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return
+		return err
 	}
 
 	err = json.Unmarshal(body, &githubResponse)
 	if err != nil {
-		return
+		return err
 	}
 
 	//fmt.Printf("%v", githubResponse)
@@ -141,10 +143,35 @@ func processSearchJob(query string) { //DB *sql.DB, query string) {
 		err = dbManager.insert(githubReport)
 		if err != nil {
 			fmt.Println(err)
-			return
 		}
 	}
 
+	return err
+}
+
+func processReportJob()(err error){
+	dbManager := GitDBManager{database.DB}
+	rows, err := dbManager.Database.Query("SELECT id, keyword, url FROM github_reports WHERE status=$1 ORDER BY time;", "Processing")
+	//ctx := context.Background()
+	//rl  := rate.NewLimiter(rate.Every(time.Minute), config.Settings.Github.FetchRateLimit)
+
+	if err != nil{
+		return err
+	}
+
+	for rows.Next(){
+		var id int
+		var keyword, url string
+		err = rows.Scan(&id, &keyword, &url)
+		if err != nil {
+			fmt.Println(err)
+			return err
+		}
+		
+		fmt.Printf("%d %s %s\n", id, keyword, url)
+	}
+	
+	return err
 }
 
 func main() {
@@ -152,5 +179,6 @@ func main() {
 	database.Connect()
 	defer database.DB.Close()
 
-	processSearchJob("rambler-co")
+	_ = processSearchJob("rambler-co")
+	_ = processReportJob()
 }
