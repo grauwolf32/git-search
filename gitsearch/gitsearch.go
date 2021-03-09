@@ -189,38 +189,10 @@ func GithubSearchWorker(ctx *context.Context, query string, id int, wg *sync.Wai
 	}
 }
 
-func RequestWorker(ctx *context.Context, wg *sync.WaitGroup, jobchan chan *http.Request, result chan *http.Response, errchan chan error){
-	defer wg.Done()
-	rl  := rate.NewLimiter(rate.Every(time.Minute), config.Settings.Github.SearchRateLimit)
-	
-	for req := range(jobchan){
-		MAKE_REQUEST:
-		for {
-			_ = rl.Wait(ctx)
-			resp, err := doRequest(req)
-		
-			if err != nil {
-				errchan <- err
-			} else if resp.StatusCode == 200{
-				result <- resp
-			} else {
-				<- time.After(15*time.Second)
-				select{
-					case jobchan <- req:
-						break MAKE_REQUEST
-					case <-ctx.Done():
-						return 
-					default:
-				}
-		    }
-		}
-	}
-}
-
-func processSearchJob2(query string)(err error){
+func GitSearch(ctx *context.Context)(err error){
 	n := len(config.Settings.Github.Tokens)
 	errchan := make(chan error, 128)
-	jobchan := make(chan int, 128)
+	jobchan := make(chan *http.Request, 128)
 	var wg sync.WaitGroup
 
 	req, err := buildGitSearchRequest(query, 0)
@@ -237,14 +209,15 @@ func processSearchJob2(query string)(err error){
 	wg.Add(1)
 	go func(errchan chan error){
 		defer wg.Done()
-		select{
+		for{
+			select{
 			case <-errchan:{
 				fmt.Println(err)	
 			}
-			case <-finish:{
+			case <-ctx.Done():
 				return
-			}
 			default:
+			}
 		}
 	}
 
