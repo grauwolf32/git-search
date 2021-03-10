@@ -3,9 +3,9 @@ package config
 //Initialization structures
 
 type InitStruct struct {
-	Github           GithubSetting 
-	DBCredentials    DBCredentialsSetting
-	Secrets          SecretsConfig
+	Github        GithubSetting        `json:"github"`
+	DBCredentials DBCredentialsSetting `json:"db_redentials"`
+	Globals       GlobalConfig         `json:"globals"`
 }
 
 type DBCredentialsSetting struct {
@@ -15,14 +15,14 @@ type DBCredentialsSetting struct {
 }
 
 type GithubSetting struct {
-	Tokens       []string `json:"tokens"`
-	SearchAPIUrl   string `json:"search_api"`
-	SearchRateLimit	   int    `json:"search_rate_limit"`
-	FetchRateLimit	   int	  `json:"fetch_rate_limit"`
-	MaxItemsInResponse int    `json:"max_items_in_response"`
+	Tokens             []string `json:"tokens"`
+	SearchAPIUrl       string   `json:"search_api"`
+	SearchRateLimit    int      `json:"search_rate_limit"`
+	FetchRateLimit     int      `json:"fetch_rate_limit"`
+	MaxItemsInResponse int      `json:"max_items_in_response"`
 }
 
-type SecretsConfig struct {
-	Keywords       []string `json:"keywords"`
-	ExcludeList      string `json:"exclude"`
+type GlobalConfig struct {
+	Keywords    []string `json:"keywords"`
+	ExcludeList []string `json:"exclude"`
 }
