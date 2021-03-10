@@ -1,9 +1,10 @@
 package database
 
 import (
-	"../config"
 	"database/sql"
 	"fmt"
+
+	"../config"
 
 	"github.com/labstack/echo"
 	_ "github.com/lib/pq"
@@ -19,7 +20,7 @@ var DB *sql.DB
 func Connect() *sql.DB {
 	DBCredentials := config.Settings.DBCredentials
 	ConnectString := fmt.Sprintf("postgres://%s:%s@localhost/%s?sslmode=disable", DBCredentials.Name, DBCredentials.Password, DBCredentials.Database)
-	
+
 	db, err := sql.Open("postgres", ConnectString)
 	if err != nil {
 		panic(err)

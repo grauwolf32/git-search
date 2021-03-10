@@ -19,6 +19,7 @@ type GithubSetting struct {
 	SearchAPIUrl   string `json:"search_api"`
 	SearchRateLimit	   int    `json:"search_rate_limit"`
 	FetchRateLimit	   int	  `json:"fetch_rate_limit"`
+	MaxItemsInResponse int    `json:"max_items_in_response"`
 }
 
 type SecretsConfig struct {

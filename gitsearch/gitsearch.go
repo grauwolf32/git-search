@@ -259,25 +259,23 @@ func genGitSearchJobs(ctx *context.Context, queries []string, jobchan chan GitSe
 		nResults[id] = githubResponse.TotalCount
 	}
 
-	
+	for id, query := range queries {
+		maxItemsInResponse := config.Settings.Github.MaxItemsInResponse
+		maxN = int(float(nResults[id])/maxItemsInResponse) + 1
+		for offset := 1; offset <= maxN; offset++ {
+			jobchan <- GitSearchJob{ Query : query, Offset : offset }
+		}
+	}
 }
 
 func GitSearch(ctx *context.Context) (err error) {
 	n := len(config.Settings.Github.Tokens)
-	errchan := make(chan error, 128)
-	jobchan := make(chan GitSearchJob, 128)
+	ctx := context.Background()
+
+	errchan := make(chan error, 4096)
+	jobchan := make(chan GitSearchJob, 4096)
+	queries := config.Settings.Secrets.Keywords
 	var wg sync.WaitGroup
-
-	req, err := buildGitSearchRequest(query, 0)
-	if err != nil {
-		return err
-	}
-
-	resp, err := doRequest(req)
-
-	if err != nil {
-		return err
-	}
 
 	wg.Add(1)
 	go func(errchan chan error) {
@@ -295,11 +293,13 @@ func GitSearch(ctx *context.Context) (err error) {
 		}
 	}(errchan)
 
+	wg.Add(1)
+    go genGitSearchJobs(ctx, queries, jobchan, errchan, wg)
+
 	for i := 0; i < n; i++ {
 		wg.Add(1)
-		DoGithubSearchRequests(query, i, wg, jobchan, errchan)
+		go GithubSearchWorker(ctx, i, jobchan, errchan, wg)
 	}
-
 }
 
 func processReportJob() (err error) {
