@@ -465,17 +465,9 @@ func processReportJob(report GitReport, resp *http.Response, errchan chan string
 	ioutil.WriteFile(report.SearchItem.ShaHash, decoded, 0644)
 }
 
-func gitFetchReportWorker(ctx context.Context, errchan chan string, wg *sync.WaitGroup) {
+func gitFetchReportWorker(ctx context.Context, jobchan chan GitReport, errchan chan string, wg *sync.WaitGroup) {
 	rl := rate.NewLimiter(0.5*rate.Every(time.Second), 1)
-	dbManager := GitDBManager{database.DB}
-
-	status := "processing"
-	processingReports, err := dbManager.selectReportByStatus(status)
-	if err != nil {
-		errchan <- pError(err)
-		return
-	}
-
+	
 	for report := range processingReports {
 		req, _ := buildFetchRequest(report.SearchItem.GitUrl)
 
@@ -509,6 +501,57 @@ func gitFetchReportWorker(ctx context.Context, errchan chan string, wg *sync.Wai
 			}
 		}
 	}
+}
+
+func GitFetch(ctx context.Context, nWorkers int){
+	dbManager := GitDBManager{database.DB}
+
+	status := "processing"
+	processingReports, err := dbManager.selectReportByStatus(status)
+	if err != nil {
+		errchan <- pError(err)
+		return
+	}
+
+	chclose := make(chan struct{}, 1)
+	var wg sync.WaitGroup
+	var errWg sync.WaitGroup
+
+	errWg.Add(1)
+	go func(errchan chan string, chclose chan struct{}, wg *sync.WaitGroup) {
+		defer wg.Done()
+		var err string 
+
+		for {
+			select {
+			case  err = <- errchan:
+				fmt.Printf("%s", err)
+
+			case <-ctx.Done():
+				return
+
+			case <-chclose:
+				return
+
+			default:
+			}
+		}
+	}(errchan, chclose, &errWg)
+
+	for i := 0; i < nWorkers; i++{
+		wg.Add(1)
+		go gitFetchReportWorker(ctx, jobchan, errchan, wg)
+	}
+
+
+	wg.Wait()
+	fmt.Println("All jobs done!")
+
+	close(errchan)
+	chclose <- struct{}{}
+	errWg.Wait()
+	fmt.Println("Err chanel closed!")
+
 }
 
 func processTextFragment(text string, before, after, lines int) (fragments []string, err error) {
