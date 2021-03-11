@@ -218,6 +218,7 @@ func (gitDBManager *GitDBManager) selectReportByStatus(status string) (results c
 	}
 
 	go func() {
+		defer fmt.Println("Job channel closed!")
 		defer close(results)
 		defer rows.Close()
 
@@ -229,6 +230,7 @@ func (gitDBManager *GitDBManager) selectReportByStatus(status string) (results c
 			json.Unmarshal(reportJsonb, &gitReport.SearchItem)
 			results <- gitReport
 		}
+		return
 	}()
 
 	return
@@ -433,6 +435,7 @@ func GitSearch(ctx context.Context) (err error) {
 		go githubSearchWorker(ctx, i, jobchan, errchan, &wg)
 	}
 
+	fmt.Println("Waiting for jobs!")
 	wg.Wait()
 	fmt.Println("All jobs done!")
 
@@ -445,6 +448,7 @@ func GitSearch(ctx context.Context) (err error) {
 
 func processReportJob(report GitReport, resp *http.Response, errchan chan string, wg *sync.WaitGroup) {
 	defer wg.Done()
+	defer fmt.Println("processReportJob done")
 
 	bodyReader, err := getBodyReader(resp)
 	if err != nil {
@@ -454,7 +458,7 @@ func processReportJob(report GitReport, resp *http.Response, errchan chan string
 
 	defer bodyReader.Close()
 	body, err := ioutil.ReadAll(bodyReader)
-	
+
 	var gitFetchItem GitFetchItem
 	err = json.Unmarshal(body, &gitFetchItem)
 	if err != nil {
@@ -493,6 +497,9 @@ func processReportJob(report GitReport, resp *http.Response, errchan chan string
 
 func gitFetchReportWorker(ctx context.Context, id int, jobchan chan GitReport, errchan chan string, wg *sync.WaitGroup) {
 	fmt.Println("gitFetchReportWorker")
+	defer wg.Done()
+	defer fmt.Println("gitFetchReportWorker done")
+
 	rl := rate.NewLimiter(0.5*rate.Every(time.Second), 1)
 	nTokens := len(config.Settings.Github.Tokens)
 	token := config.Settings.Github.Tokens[id % nTokens]
@@ -576,6 +583,7 @@ func GitFetch(ctx context.Context)(err error){
 		go gitFetchReportWorker(ctx, i, processingReports, errchan, &wg)
 	}
 
+	fmt.Println("Waiting for jobs!")
 	wg.Wait()
 	fmt.Println("All jobs done!")
 
