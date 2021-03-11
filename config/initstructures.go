@@ -20,6 +20,7 @@ type GithubSetting struct {
 	SearchRateLimit    int      `json:"search_rate_limit"`
 	FetchRateLimit     int      `json:"fetch_rate_limit"`
 	MaxItemsInResponse int      `json:"max_items_in_response"`
+	Languages		[]string    `json:"langs"`
 }
 
 type GlobalConfig struct {
