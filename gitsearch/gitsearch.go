@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	b64 "encoding/base64"
+	_ "encoding/base64"
 
 	"../config"
 	"../database"
@@ -141,7 +141,7 @@ func buildGitSearchRequest(query string, offset int, token string) (*http.Reques
 	return req, err
 }
 
-func buildFetchRequest(url string) (*http.Request, error) {
+func buildFetchRequest(url, token string) (*http.Request, error) {
 	var requestBody bytes.Buffer
 	req, err := http.NewRequest("GET", url, &requestBody)
 	fmt.Println(url)
@@ -149,6 +149,10 @@ func buildFetchRequest(url string) (*http.Request, error) {
 	if err != nil {
 		return &http.Request{}, err
 	}
+
+	req.Header.Set("Authorization", "token "+token)
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	req.Header.Set("Accept-Encoding", "deflate, gzip;q=1.0, *;q=0.5")
 	return req, err
 }
 
@@ -168,6 +172,14 @@ func (gitDBManager *GitDBManager) insert(report GitReport) error {
 		info,
 		item.GitUrl,
 		report.Time)
+
+	return err
+}
+
+func (gitDBManager *GitDBManager) updateStatus(report GitReport) error {
+	_, err := gitDBManager.Database.Exec("UPDATE github_reports SET status=$1 WHERE id=$2;",
+		report.Status,
+		report.Id)
 
 	return err
 }
@@ -197,7 +209,7 @@ func (gitDBManager *GitDBManager) check(item GitSearchItem) (exist bool, err err
 }
 
 func (gitDBManager *GitDBManager) selectReportByStatus(status string) (results chan GitReport, err error) {
-	rows, err := gitDBManager.Database.Query("SELECT id, status, query, info, time FROM github_reports WHERE status=$1 ORDER BY time;", status)
+	rows, err := gitDBManager.Database.Query("SELECT id, status, keyword, info, time FROM github_reports WHERE status=$1 ORDER BY time;", status)
 	results = make(chan GitReport, 512)
 
 	if err != nil {
@@ -272,7 +284,8 @@ func processSearchResponse(query string, resp *http.Response, errchan chan strin
 func githubSearchWorker(ctx context.Context, id int, jobchan chan GitSearchJob, errchan chan string, wg *sync.WaitGroup) {
 	defer wg.Done()
 	rl := rate.NewLimiter(0.5*rate.Every(time.Second), 1)
-	token := config.Settings.Github.Tokens[id]
+	nTokens := len(config.Settings.Github.Tokens)
+	token := config.Settings.Github.Tokens[id % nTokens]
 
 	for job := range jobchan {
 		fmt.Printf("job %v started\n", job)
@@ -432,14 +445,16 @@ func GitSearch(ctx context.Context) (err error) {
 
 func processReportJob(report GitReport, resp *http.Response, errchan chan string, wg *sync.WaitGroup) {
 	defer wg.Done()
-	defer resp.Body.Close()
 
-	body, err := ioutil.ReadAll(resp.Body)
+	bodyReader, err := getBodyReader(resp)
 	if err != nil {
 		errchan <- pError(err)
 		return
 	}
 
+	defer bodyReader.Close()
+	body, err := ioutil.ReadAll(bodyReader)
+	
 	var gitFetchItem GitFetchItem
 	err = json.Unmarshal(body, &gitFetchItem)
 	if err != nil {
@@ -449,12 +464,8 @@ func processReportJob(report GitReport, resp *http.Response, errchan chan string
 
 	var decoded []byte
 	if gitFetchItem.Encoding == "base64" {
-		_, err = b64.StdEncoding.Decode(decoded, gitFetchItem.Content)
-
-		if err != nil {
-			errchan <- pError(err)
-			return
-		}
+		/* Here is some magick: it seems that json automatically decode base64 encoding... */
+		decoded = gitFetchItem.Content
 
 	} else {
 		err = fmt.Errorf("processReportJob: Unknown encoding: %s", gitFetchItem.Encoding)
@@ -462,14 +473,32 @@ func processReportJob(report GitReport, resp *http.Response, errchan chan string
 		return
 	}
 
-	ioutil.WriteFile(report.SearchItem.ShaHash, decoded, 0644)
+	err = ioutil.WriteFile(report.SearchItem.ShaHash, decoded, 0644)
+	if err != nil{
+		errchan <- pError(err)
+		return
+	}
+	
+	dbManager := GitDBManager{database.DB}
+	report.Status = "fetched"
+	dbManager.updateStatus(report)
+
+	if err != nil{
+		errchan <- pError(err)
+		return
+	}
+
+	return
 }
 
-func gitFetchReportWorker(ctx context.Context, jobchan chan GitReport, errchan chan string, wg *sync.WaitGroup) {
+func gitFetchReportWorker(ctx context.Context, id int, jobchan chan GitReport, errchan chan string, wg *sync.WaitGroup) {
+	fmt.Println("gitFetchReportWorker")
 	rl := rate.NewLimiter(0.5*rate.Every(time.Second), 1)
+	nTokens := len(config.Settings.Github.Tokens)
+	token := config.Settings.Github.Tokens[id % nTokens]
 	
-	for report := range processingReports {
-		req, _ := buildFetchRequest(report.SearchItem.GitUrl)
+	for report := range jobchan {
+		req, _ := buildFetchRequest(report.SearchItem.GitUrl, token)
 
 		MAKE_REQUEST:
 		for {
@@ -503,17 +532,21 @@ func gitFetchReportWorker(ctx context.Context, jobchan chan GitReport, errchan c
 	}
 }
 
-func GitFetch(ctx context.Context, nWorkers int){
+func GitFetch(ctx context.Context)(err error){
+	n := len(config.Settings.Github.Tokens)
+
 	dbManager := GitDBManager{database.DB}
+	errchan := make(chan string, 4096)
+	chclose := make(chan struct{}, 1)
 
 	status := "processing"
 	processingReports, err := dbManager.selectReportByStatus(status)
+	
 	if err != nil {
-		errchan <- pError(err)
+		fmt.Printf("%s\n", pError(err))
 		return
 	}
 
-	chclose := make(chan struct{}, 1)
 	var wg sync.WaitGroup
 	var errWg sync.WaitGroup
 
@@ -538,11 +571,10 @@ func GitFetch(ctx context.Context, nWorkers int){
 		}
 	}(errchan, chclose, &errWg)
 
-	for i := 0; i < nWorkers; i++{
+	for i := 0; i < n; i++{
 		wg.Add(1)
-		go gitFetchReportWorker(ctx, jobchan, errchan, wg)
+		go gitFetchReportWorker(ctx, i, processingReports, errchan, &wg)
 	}
-
 
 	wg.Wait()
 	fmt.Println("All jobs done!")
@@ -551,7 +583,7 @@ func GitFetch(ctx context.Context, nWorkers int){
 	chclose <- struct{}{}
 	errWg.Wait()
 	fmt.Println("Err chanel closed!")
-
+    return
 }
 
 func processTextFragment(text string, before, after, lines int) (fragments []string, err error) {
@@ -567,4 +599,5 @@ func main() {
     //fmt.Println(err)
 	ctx, _ := context.WithDeadline(context.Background(), time.Now().Add(40*time.Minute))
 	//GitSearch(ctx)
+	GitFetch(ctx)
 }
