@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"runtime"
 	"compress/gzip"
 	"context"
 	"database/sql"
@@ -77,6 +78,14 @@ type GitDBManager struct {
 	Database *sql.DB
 }
 
+func pError(err error)(message string){
+	errMessage := err.Error()
+	_, file, line, _ := runtime.Caller(1)
+
+	message = fmt.Sprintf("[ERROR] %s %d :\n%s\n\n", file, line, errMessage)
+	return
+}
+
 func doRequest(req *http.Request) (resp *http.Response, err error) {
 	client := http.Client{
 		Timeout: time.Duration(5 * time.Second),
@@ -87,6 +96,7 @@ func doRequest(req *http.Request) (resp *http.Response, err error) {
 }
 
 func getBodyReader(resp *http.Response) (bodyReader io.ReadCloser, err error) {
+	fmt.Printf("Encoding: %s\n", resp.Header.Get("Content-Encoding"))
 	switch resp.Header.Get("Content-Encoding") {
 	case "gzip":
 		bodyReader, err = gzip.NewReader(resp.Body)
@@ -96,10 +106,22 @@ func getBodyReader(resp *http.Response) (bodyReader io.ReadCloser, err error) {
 	}
 
 	if err != nil {
+		fmt.Println("Ex: %v\n",err)
 		resp.Body.Close()
 	}
 
 	return bodyReader, err
+}
+
+func buildGitSearchQuery(keyword string, lang string, infile bool)(query string){
+	query = keyword
+	if infile{
+		query += "+in:file"
+	}
+	if lang != ""{
+		query += "+language:" + lang
+	}
+	return query
 }
 
 func buildGitSearchRequest(query string, offset int, token string) (*http.Request, error) {
@@ -122,6 +144,8 @@ func buildGitSearchRequest(query string, offset int, token string) (*http.Reques
 func buildFetchRequest(url string) (*http.Request, error) {
 	var requestBody bytes.Buffer
 	req, err := http.NewRequest("GET", url, &requestBody)
+	fmt.Println(url)
+
 	if err != nil {
 		return &http.Request{}, err
 	}
@@ -161,6 +185,8 @@ func (gitDBManager *GitDBManager) check(item GitSearchItem) (exist bool, err err
 	for rows.Next() {
 		err = rows.Scan(&id)
 		if err != nil {
+			fmt.Printf("Eax: %v\n",err)
+
 			return
 		}
 		exist = true
@@ -196,7 +222,7 @@ func (gitDBManager *GitDBManager) selectReportByStatus(status string) (results c
 	return
 }
 
-func processSearchResponse(query string, resp *http.Response, errchan chan error, wg *sync.WaitGroup) {
+func processSearchResponse(query string, resp *http.Response, errchan chan string, wg *sync.WaitGroup) {
 	fmt.Println("processSearchResponse")
 	defer wg.Done()
 
@@ -205,7 +231,7 @@ func processSearchResponse(query string, resp *http.Response, errchan chan error
 
 	bodyReader, err := getBodyReader(resp)
 	if err != nil {
-		errchan <- err
+		errchan <- pError(err)
 		return
 	}
 
@@ -214,7 +240,7 @@ func processSearchResponse(query string, resp *http.Response, errchan chan error
 
 	err = json.Unmarshal(body, &githubResponse)
 	if err != nil {
-		errchan <- err
+		errchan <- pError(err)
 		return
 	}
 
@@ -222,7 +248,7 @@ func processSearchResponse(query string, resp *http.Response, errchan chan error
 		exist, err := dbManager.check(gihubResponseItem)
 
 		if err != nil {
-			errchan <- err
+			errchan <- pError(err)
 			continue
 		}
 
@@ -238,14 +264,14 @@ func processSearchResponse(query string, resp *http.Response, errchan chan error
 
 		inertionError := dbManager.insert(githubReport)
 		if inertionError != nil {
-			errchan <- inertionError
+			errchan <- pError(inertionError)
 		}
 	}
 }
 
-func githubSearchWorker(ctx context.Context, id int, jobchan chan GitSearchJob, errchan chan error, wg *sync.WaitGroup) {
+func githubSearchWorker(ctx context.Context, id int, jobchan chan GitSearchJob, errchan chan string, wg *sync.WaitGroup) {
 	defer wg.Done()
-	rl := rate.NewLimiter(rate.Every(time.Minute), config.Settings.Github.SearchRateLimit)
+	rl := rate.NewLimiter(0.5*rate.Every(time.Second), 1)
 	token := config.Settings.Github.Tokens[id]
 
 	for job := range jobchan {
@@ -254,14 +280,11 @@ func githubSearchWorker(ctx context.Context, id int, jobchan chan GitSearchJob, 
 
 	MAKE_REQUEST:
 		for {
-			fmt.Println("Starting limiting...")
 			_ = rl.Wait(ctx)
-			fmt.Println("Next Request")
-
 			resp, err := doRequest(req)
 
 			if err != nil {
-				errchan <- err
+				errchan <- pError(err)
 				return
 			}
 
@@ -271,7 +294,7 @@ func githubSearchWorker(ctx context.Context, id int, jobchan chan GitSearchJob, 
 				break MAKE_REQUEST
 
 			} else {
-				<-time.After(15 * time.Second)
+				<-time.After(10 * time.Second)
 				fmt.Printf("Waiting...\nStatus: %d\n", resp.StatusCode)
 
 				select {
@@ -284,13 +307,24 @@ func githubSearchWorker(ctx context.Context, id int, jobchan chan GitSearchJob, 
 	}
 }
 
-func genGitSearchJobs(ctx context.Context, queries []string, jobchan chan GitSearchJob, errchan chan error, wg *sync.WaitGroup) {
+func genGitSearchJobs(ctx context.Context, keywords []string, jobchan chan GitSearchJob, errchan chan string, wg *sync.WaitGroup) {
 	defer close(jobchan)
 	defer wg.Done()
 
+	nKeywords := len(keywords)
+	nQueries  := nKeywords*len(config.Settings.Github.Languages)
+ 	queries   := make([]string, nQueries, nQueries)
+
+	for i, lang := range(config.Settings.Github.Languages){
+		for j, keyword := range(keywords){
+			query  := buildGitSearchQuery(keyword, lang, false)
+			queries[i*nKeywords + j] = query
+		}
+	}
+
 	nResults := make([]int, len(queries), len(queries))
 	nTokens := len(config.Settings.Github.Tokens)
-	rl := rate.NewLimiter(rate.Every(time.Minute), config.Settings.Github.SearchRateLimit)
+	rl := rate.NewLimiter(0.5*rate.Every(time.Second), 1)
 
 	for id, query := range queries {
 		token := config.Settings.Github.Tokens[id%nTokens]
@@ -298,21 +332,22 @@ func genGitSearchJobs(ctx context.Context, queries []string, jobchan chan GitSea
 		req, err := buildGitSearchRequest(query, offset, token)
 
 		if err != nil {
-			errchan <- err
+			errchan <- pError(err)
 			continue
 		}
 
 		_ = rl.Wait(ctx)
+
 		resp, err := doRequest(req)
 
 		if err != nil {
-			errchan <- err
+			errchan <- pError(err)
 			continue
 		}
 
 		bodyReader, err := getBodyReader(resp)
 		if err != nil {
-			errchan <- err
+			errchan <- pError(err)
 			return
 		}
 
@@ -322,7 +357,7 @@ func genGitSearchJobs(ctx context.Context, queries []string, jobchan chan GitSea
 		var githubResponse GitSearchApiResponse
 		err = json.Unmarshal(body, &githubResponse)
 		if err != nil {
-			errchan <- err
+			errchan <- pError(err)
 			continue
 		}
 
@@ -330,9 +365,13 @@ func genGitSearchJobs(ctx context.Context, queries []string, jobchan chan GitSea
 	}
 
 	for id, query := range queries {
-		maxItemsInResponse := float32(config.Settings.Github.MaxItemsInResponse)
-		fpMaxCount := float32(nResults[id])
+		maxItemsInResponse := 100
+		fpMaxCount := nResults[id]
 		maxN := int(fpMaxCount/maxItemsInResponse) + 1
+
+		if maxN > 10 {
+			maxN = 10
+		}
 
 		for offset := 0; offset <= maxN; offset++ {
 			jobchan <- GitSearchJob{Query: query, Offset: offset}
@@ -344,7 +383,7 @@ func genGitSearchJobs(ctx context.Context, queries []string, jobchan chan GitSea
 func GitSearch(ctx context.Context) (err error) {
 	n := len(config.Settings.Github.Tokens)
 
-	errchan := make(chan error, 4096)
+	errchan := make(chan string, 4096)
 	jobchan := make(chan GitSearchJob, 4096)
 	chclose := make(chan struct{}, 1)
 
@@ -353,12 +392,14 @@ func GitSearch(ctx context.Context) (err error) {
 	var errWg sync.WaitGroup
 
 	errWg.Add(1)
-	go func(errchan chan error, chclose chan struct{}, wg *sync.WaitGroup) {
+	go func(errchan chan string, chclose chan struct{}, wg *sync.WaitGroup) {
 		defer wg.Done()
+		var err string 
+
 		for {
 			select {
-			case <-errchan:
-				fmt.Printf("Error:  %v\n", err)
+			case  err = <- errchan:
+				fmt.Printf("%s", err)
 
 			case <-ctx.Done():
 				return
@@ -389,20 +430,20 @@ func GitSearch(ctx context.Context) (err error) {
 	return
 }
 
-func processReportJob(report GitReport, resp *http.Response, errchan chan error, wg *sync.WaitGroup) {
+func processReportJob(report GitReport, resp *http.Response, errchan chan string, wg *sync.WaitGroup) {
 	defer wg.Done()
 	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		errchan <- err
+		errchan <- pError(err)
 		return
 	}
 
 	var gitFetchItem GitFetchItem
 	err = json.Unmarshal(body, &gitFetchItem)
 	if err != nil {
-		errchan <- err
+		errchan <- pError(err) 
 		return
 	}
 
@@ -411,48 +452,51 @@ func processReportJob(report GitReport, resp *http.Response, errchan chan error,
 		_, err = b64.StdEncoding.Decode(decoded, gitFetchItem.Content)
 
 		if err != nil {
-			errchan <- err
+			errchan <- pError(err)
 			return
 		}
 
 	} else {
-		errchan <- fmt.Errorf("processReportJob: Unknown encoding: %s", gitFetchItem.Encoding)
+		err = fmt.Errorf("processReportJob: Unknown encoding: %s", gitFetchItem.Encoding)
+		errchan <- pError(err)
 		return
 	}
 
-	fmt.Printf("%s\n", string(decoded))
+	ioutil.WriteFile(report.SearchItem.ShaHash, decoded, 0644)
 }
 
-func gitFetchReportWorker(ctx context.Context, errchan chan error, wg *sync.WaitGroup) {
-	rl := rate.NewLimiter(rate.Every(time.Minute), config.Settings.Github.FetchRateLimit)
+func gitFetchReportWorker(ctx context.Context, errchan chan string, wg *sync.WaitGroup) {
+	rl := rate.NewLimiter(0.5*rate.Every(time.Second), 1)
 	dbManager := GitDBManager{database.DB}
 
 	status := "processing"
 	processingReports, err := dbManager.selectReportByStatus(status)
 	if err != nil {
-		errchan <- err
+		errchan <- pError(err)
 		return
 	}
 
 	for report := range processingReports {
 		req, _ := buildFetchRequest(report.SearchItem.GitUrl)
 
+		MAKE_REQUEST:
 		for {
 			_ = rl.Wait(ctx)
 			resp, err := doRequest(req)
 
 			if err != nil {
-				errchan <- err
+				errchan <- pError(err)
 				return
 			}
 
 			if resp.StatusCode == 200 {
 				wg.Add(1)
 				go processReportJob(report, resp, errchan, wg)
+				break MAKE_REQUEST
 
 			} else {
 				resp.Body.Close()
-				<-time.After(15 * time.Second)
+				<-time.After(10 * time.Second)
 				fmt.Printf("Waiting...\nStatus: %d\n", resp.StatusCode)
 
 				select {
@@ -473,10 +517,11 @@ func processTextFragment(text string, before, after, lines int) (fragments []str
 
 func main() {
 	config.StartInit()
-	fmt.Printf("%v\n\n", config.Settings)
 	database.Connect()
 	defer database.DB.Close()
 
-	ctx, _ := context.WithDeadline(context.Background(), time.Now().Add(10*time.Minute))
-	GitSearch(ctx)
+	//_, err := database.DB.Exec("INSERT INTO github_reports  (shahash, status, keyword, owner) VALUES ($1, $2, $3, $4);", "123", "test", "kw", "me")
+    //fmt.Println(err)
+	ctx, _ := context.WithDeadline(context.Background(), time.Now().Add(40*time.Minute))
+	//GitSearch(ctx)
 }
