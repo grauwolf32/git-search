@@ -193,9 +193,40 @@ func gt(f1, f2 *Fragment) bool {
 }
 
 func in(f1, f2 *Fragment) bool {
+	if f1 == nil || f2 == nil {
+		return false
+	}
+
 	incl := f2.Scope[0] <= f1.Scope[0]
 	incl = incl && f1.Scope[1] <= f2.Scope[1]
 	return incl
+}
+
+func (f *Fragment) isLeaf() bool {
+	return f.pLeft == nil && f.pRight == nil
+}
+
+func (f *Fragment) length() int {
+	return f.Scope[1] - f.Scope[0]
+}
+
+func (f *Fragment) replace(child, fragment *Fragment) {
+	if f == nil {
+		return
+	}
+
+	if eq(f, child) {
+		f.pParent.replace(f, child)
+		return
+	}
+
+	if f.pLeft == child {
+		f.pLeft = fragment
+	} else {
+		f.pRight = fragment
+	}
+
+	fragment.pParent = f
 }
 
 func join(f1, f2 *Fragment) (f *Fragment) {
@@ -212,27 +243,6 @@ func join(f1, f2 *Fragment) (f *Fragment) {
 	return
 }
 
-func (f *Fragment) isLeaf() bool {
-	return f.pLeft == nil && f.pRight == nil
-}
-
-func (f *Fragment) length() int {
-	return f.Scope[1] - f.Scope[0]
-}
-
-func (f *Fragment) replace(child, fragment *Fragment) {
-	if eq(f, child) {
-		f.pParent.replace(f, child)
-	}
-
-	if f.pLeft == child {
-		f.pLeft = fragment
-	} else {
-		f.pRight = fragment
-	}
-	fragment.pParent = f
-}
-
 func _replaceHead(f, child *Fragment) *Fragment {
 	pHead := join(f, child)
 	pHead.pLeft = f
@@ -246,72 +256,38 @@ func _replaceHead(f, child *Fragment) *Fragment {
 		pHead.pRight = pHead.pLeft
 		pHead.pLeft = child
 	}
-
 	return pHead
 }
 
-func (f *Fragment) add(child *Fragment) *Fragment {
+func rotateHead(f, child *Fragment) *Fragment {
+	pHead := new(Fragment)
+	pHead.Scope = make([]int, 2, 2)
+
+	pHead.pLeft = f
+	pHead.pRight = child
+	f.pParent.replace(f, pHead)
+	f.pParent = pHead
+
+	pHead.Scope[0] = f.Scope[0]
+	if child.Scope[0] < pHead.Scope[0] {
+		pHead.Scope[0] = child.Scope[0]
+		pHead.pRight = f
+		pHead.pLeft = child
+	}
+
+	pHead.Scope[1] = f.Scope[1]
+	if child.Scope[1] > pHead.Scope[1] {
+		pHead.Scope[1] = child.Scope[1]
+	}
+	return pHead
+}
+
+func (f *Fragment) Add(child *Fragment) *Fragment {
 	if eq(f, child) {
 		return f
 	}
 
-	var minElement int
-	var maxElement int
-
-	var minChild bool
-	var fInclChild bool
-	var childInclf bool
-
-	if f.Scope[1] <= child.Scope[1] {
-		// f <= child
-		if child.Scope[0] <= f.Scope[0] {
-			childInclf = true
-		}
-
-		minElement = f.Scope[0]
-		maxElement = child.Scope[1]
-
-	} else {
-		if f.Scope[0] <= child.Scope[0] {
-			fInclChild = true
-		}
-
-		minElement = child.Scope[0]
-		maxElement = f.Scope[1]
-		minChild = true
-	}
-
-	if f.isLeaf() {
-		if childInclf {
-			child.pLeft = f
-			f.pParent.replace(f, child)
-			f.pParent = child
-			return child
-
-		} else if fInclChild {
-			f.pLeft = child
-			child.pParent = f
-			return f
-		}
-
-		pHead := new(Fragment)
-		pHead.Scope = []int{minElement, maxElement}
-
-		if minChild {
-			pHead.pLeft = child
-			pHead.pRight = f
-		} else {
-			pHead.pLeft = f
-			pHead.pRight = child
-		}
-
-		f.pParent = pHead
-		child.pParent = pHead
-
-		return pHead
-	}
-
-	if childInclf {
+	if in(f, child) {
 		child.pLeft = f
 		f.pParent.replace(f, child)
 		f.pParent = child
@@ -319,43 +295,7 @@ func (f *Fragment) add(child *Fragment) *Fragment {
 		return child
 	}
 
-	if f.pLeft != nil && f.pRight == nil {
-		// head: {} pLeft: []; { [ ] }
-		if fInclChild {
-			if in(child, f.pLeft) {
-				f.pLeft = f.pLeft.add(child)
-				return f
-			}
-
-			pHead := join(f.pLeft, child)
-			if f.pLeft.Scope[0] < child.Scope[0] {
-				pHead.pLeft = f.pLeft
-				pHead.pRight = child
-			} else {
-				pHead.pLeft = child
-				pHead.pRight = f.pLeft
-			}
-
-			f.replace(f.pLeft, pHead)
-			return f
-		}
-
-		pHead := join(f, child)
-		pHead.pLeft = f
-		f.pParent.replace(f, pHead)
-		f.pParent = pHead
-
-		if pHead.pLeft.Scope[0] < child.Scope[0] {
-			pHead.pRight = child
-		} else {
-			pHead.pRight = pHead.pLeft
-			pHead.pLeft = child
-		}
-
-		return pHead
-	}
-
-	if fInclChild {
+	if in(child, f) {
 		if in(child, f.pLeft) {
 			f.pLeft = f.pLeft.add(child)
 			return f
@@ -364,28 +304,26 @@ func (f *Fragment) add(child *Fragment) *Fragment {
 			return f
 		}
 
+		if f.pRight == nil {
+			if f.pLeft == nil {
+				f.pLeft = child
+				child.pParent = f
+				return f
+			}
+
+			pHead := _replaceHead(f.pLeft, child)
+			return pHead
+		}
+
 		leftJoin := join(f.pLeft, child)
 		rightJoin := join(f.pRight, child)
 		var pHead *Fragment
 
 		if leftJoin.length() < rightJoin.length() {
-			pHead = leftJoin
-			pHead.pLeft = f.pLeft
-			f.replace(f.pLeft, pHead)
+			pHead = _replaceHead(f.pLeft, child)
 		} else {
-			pHead = rightJoin
-			pHead.pLeft = f.pRight
-			f.replace(f.pRight, pHead)
+			pHead = _replaceHead(f.pRight, child)
 		}
-
-		if pHead.pLeft.Scope[0] < child.Scope[0] {
-			pHead.pRight = child
-		} else {
-			pHead.pRight = pHead.pLeft
-			pHead.pLeft = child
-		}
-
-		pHead = pHead.add(child)
 
 		if in(f.pRight, pHead) {
 			pRight := f.pRight
@@ -399,17 +337,80 @@ func (f *Fragment) add(child *Fragment) *Fragment {
 		return f
 	}
 
-	pHead := join(f, child)
-	pHead.pLeft = f
-	f.pParent.replace(f, pHead)
-	f.pParent = pHead
+	pHead := _replaceHead(f, child)
+	return pHead
+}
 
-	if pHead.pLeft.Scope[0] < child.Scope[0] {
-		pHead.pRight = child
-	} else {
-		pHead.pRight = pHead.pLeft
-		pHead.pLeft = child
+func (f *Fragment) add(child *Fragment) *Fragment {
+	if eq(f, child) {
+		return f
 	}
 
+	if in(f, child) {
+		child.pLeft = f
+		f.pParent.replace(f, child)
+		f.pParent = child
+
+		return child
+	}
+
+	if f.isLeaf() {
+		if in(child, f) {
+			f.pLeft = child
+			child.pParent = f
+			return f
+		}
+
+		pHead := _replaceHead(f, child)
+		return pHead
+	}
+
+	if f.pLeft != nil && f.pRight == nil {
+		if in(child, f) {
+			if in(child, f.pLeft) {
+				f.pLeft = f.pLeft.add(child)
+				return f
+			}
+
+			pHead := _replaceHead(f.pLeft, child)
+			return pHead
+		}
+
+		pHead := _replaceHead(f, child)
+		return pHead
+	}
+
+	if in(child, f) {
+		if in(child, f.pLeft) {
+			f.pLeft = f.pLeft.add(child)
+			return f
+		} else if in(child, f.pRight) {
+			f.pRight = f.pRight.add(child)
+			return f
+		}
+
+		leftJoin := join(f.pLeft, child)
+		rightJoin := join(f.pRight, child)
+		var pHead *Fragment
+
+		if leftJoin.length() < rightJoin.length() {
+			pHead = _replaceHead(f.pLeft, child)
+		} else {
+			pHead = _replaceHead(f.pRight, child)
+		}
+
+		if in(f.pRight, pHead) {
+			pRight := f.pRight
+			f.pRight = nil
+			pHead = pHead.add(pRight)
+		} else if in(f.pLeft, pHead) {
+			pLeft := f.pLeft
+			f.pLeft = nil
+			pHead = pHead.add(pLeft)
+		}
+		return f
+	}
+
+	pHead := _replaceHead(f, child)
 	return pHead
 }
