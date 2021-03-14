@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/sha1"
 	"fmt"
 	"io"
 	"os"
@@ -9,12 +8,11 @@ import (
 	"unicode/utf8"
 )
 
-func getKeywordContext(text, keyword string, maxFragLen, desiredLines int) (fragmets []string, err error) {
+func getKeywordContext(text, keyword string, maxFragLen, desiredLines int) (fragmets []Fragment, err error) {
 	//text = trimS(text)
 	kwIndices := getKeywordIndices(text, keyword)
 	crlfIndices := getKeywordIndices(text, "\n")
-	hashSet := make(map[string]bool)
-	fragments := make([]string, 0, len(kwIndices))
+	fragments := make([]Fragment, 0, len(kwIndices))
 	nLines := len(crlfIndices)
 
 	c := len(keyword)
@@ -59,8 +57,6 @@ func getKeywordContext(text, keyword string, maxFragLen, desiredLines int) (frag
 		}
 
 		nHalfDesiredLines := desiredLines / 2
-		var fragment string
-
 		lrBorderInd := crlfRightBorderInd + nHalfDesiredLines
 		llBorderInd := crlfLeftBorderInd - nHalfDesiredLines
 
@@ -85,14 +81,8 @@ func getKeywordContext(text, keyword string, maxFragLen, desiredLines int) (frag
 			}
 		}
 
-		fragment = text[lBorder:rBorder]
-		fHash := sha1.New()
-		fHash.Write([]byte(fragment))
-		fHashSum := fmt.Sprintf("%x", fHash.Sum(nil))
-		if !hashSet[fHashSum] {
-			fragments = append(fragments, fragment)
-			hashSet[fHashSum] = true
-		}
+		fragment := Fragment{Scope: []int{lBorder, rBorder}}
+		fragments = append(fragments, fragment)
 	}
 	return fragments, err
 }
@@ -293,6 +283,25 @@ func (f *Fragment) Add(child *Fragment) *Fragment {
 	return pHead
 }
 
+func (f *Fragment) Length() int {
+	return f.Scope[1] - f.Scope[0]
+}
+
+func (f *Fragment) Prune(maxLen int) (fragments []Fragment) {
+	fragments = make([]Fragment, 0, 8)
+	if f.Length() < maxLen {
+		fragments = append(fragments, *f)
+	} else {
+		if f.pLeft != nil {
+			fragments = append(fragments, f.pLeft.Prune(maxLen)...)
+		}
+		if f.pRight != nil {
+			fragments = append(fragments, f.pLeft.Prune(maxLen)...)
+		}
+	}
+	return
+}
+
 func main() {
 	fdata, _ := readFile("../files/1e519bd2685e43f3080a1903b9506b9e782fb483")
 	text := string(fdata)
@@ -304,23 +313,47 @@ func main() {
 		return
 	}
 
-	for _, fragment := range fragments {
-		fmt.Printf("%s\n\n", fragment)
+	if len(fragments) == 0 {
+		return
 	}
 
-	pHead := new(Fragment)
-	pHead.Scope = []int{3, 6}
+	pHead := &fragments[0]
+	fragments = fragments[1:]
 
-	pElement := new(Fragment)
-	pElement.Scope = []int{7, 16}
+	for _, fragment := range fragments {
+		pHead = pHead.Add(&fragment)
+	}
 
-	pHead = pHead.Add(pElement)
+	for _, fragment := range pHead.Prune(640) {
+		f0 := fragment.Scope[0]
+		f1 := fragment.Scope[1]
 
-	fmt.Printf("\n%v\n", pHead)
-	fmt.Printf("\n%v\n", pHead.pLeft)
-	fmt.Printf("\n%v\n", pHead.pRight)
+		fmt.Printf("%s\n---------------\n\n", text[f0:f1])
+	}
 
-	fmt.Printf("%v\n", pElement)
+	/*
+		pHead := new(Fragment)
+		pHead.Scope = []int{3, 8}
+
+		pElement := new(Fragment)
+		pElement.Scope = []int{4, 5}
+
+		pHead = pHead.Add(pElement)
+
+		pElement2 := new(Fragment)
+		pElement2.Scope = []int{6, 7}
+		pHead = pHead.Add(pElement2)
+
+		pElement3 := new(Fragment)
+		pElement3.Scope = []int{4, 5}
+		pHead = pHead.Add(pElement3)
+
+		fmt.Printf("\n%v\n", pHead.pParent)
+		fmt.Printf("\n%v\n", pHead)
+		fmt.Printf("%v\n", pElement)
+		fmt.Printf("%v\n", pElement2)
+		fmt.Printf("%v\n", pElement3)
+	*/
 
 	return
 }
