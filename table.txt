@@ -1,1 +1,2 @@
 create table github_reports (id serial, shahash varchar, status varchar, keyword varchar, owner varchar, info jsonb, url varchar, time integer);
+create table report_fragments (id serial, content text, reject_id integer, report_id integer, shahash varchar);

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"strings"
 	"unicode/utf8"
@@ -337,34 +338,24 @@ func GenTextFragments(text string, keywords []string, maxFragLen, desiredLines i
 }
 
 func main() {
-	fdata, _ := readFile("../files/2e98233d63aae758a6468a751cb22c0e697ac09f")
-	text := string(fdata)
-	text = trimS(text)
+	keywords := []string{"rambler-co", "password"}
 
-	keywords := []string{"rambler-co"}
-	fragments, _ := GenTextFragments(text, keywords, 640, 5)
+	files, err := ioutil.ReadDir("../files")
+	if err != nil {
+		fmt.Println(err.Error())
+	}
 
-	/*
-		fragments, err := getKeywordContext(text, "rambler-co", 640, 5)
-		if err != nil {
-			fmt.Println(err.Error())
-			return
-		}
+	for _, f := range files {
+		fmt.Println(f.Name())
+		fdata, _ := readFile("../files/" + f.Name())
+		text := string(fdata)
+		text = trimS(text)
 
-		if len(fragments) == 0 {
-			return
-		}
-
-		pHead := &fragments[0]
-		fragments = fragments[1:]
+		fragments, _ := GenTextFragments(text, keywords, 640, 5)
 
 		for _, fragment := range fragments {
-			pHead = pHead.Add(&fragment)
+			fmt.Printf("%s\n---------------\n\n", fragment)
 		}
-	*/
-
-	for _, fragment := range fragments {
-		fmt.Printf("%s\n---------------\n\n", fragment)
 	}
 
 	/*
