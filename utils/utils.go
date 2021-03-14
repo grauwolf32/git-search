@@ -302,15 +302,17 @@ func (f *Fragment) Prune(maxLen int) (fragments []Fragment) {
 	return
 }
 
-func main() {
-	fdata, _ := readFile("../files/1e519bd2685e43f3080a1903b9506b9e782fb483")
-	text := string(fdata)
-	text = trimS(text)
+func GenTextFragments(text string, keywords []string, maxFragLen, desiredLines int) (results []string, err error) {
+	fragments := make([]Fragment, 0, 64)
+	results = make([]string, 0, 64)
+	var frags []Fragment
 
-	fragments, err := getKeywordContext(text, "rambler-co", 640, 5)
-	if err != nil {
-		fmt.Println(err.Error())
-		return
+	for _, keyword := range keywords {
+		frags, err = getKeywordContext(text, keyword, maxFragLen, desiredLines)
+		if err != nil {
+			return
+		}
+		fragments = append(fragments, frags...)
 	}
 
 	if len(fragments) == 0 {
@@ -324,11 +326,45 @@ func main() {
 		pHead = pHead.Add(&fragment)
 	}
 
-	for _, fragment := range pHead.Prune(640) {
+	for _, fragment := range pHead.Prune(maxFragLen) {
 		f0 := fragment.Scope[0]
 		f1 := fragment.Scope[1]
 
-		fmt.Printf("%s\n---------------\n\n", text[f0:f1])
+		results = append(results, text[f0:f1])
+	}
+
+	return
+}
+
+func main() {
+	fdata, _ := readFile("../files/2e98233d63aae758a6468a751cb22c0e697ac09f")
+	text := string(fdata)
+	text = trimS(text)
+
+	keywords := []string{"rambler-co"}
+	fragments, _ := GenTextFragments(text, keywords, 640, 5)
+
+	/*
+		fragments, err := getKeywordContext(text, "rambler-co", 640, 5)
+		if err != nil {
+			fmt.Println(err.Error())
+			return
+		}
+
+		if len(fragments) == 0 {
+			return
+		}
+
+		pHead := &fragments[0]
+		fragments = fragments[1:]
+
+		for _, fragment := range fragments {
+			pHead = pHead.Add(&fragment)
+		}
+	*/
+
+	for _, fragment := range fragments {
+		fmt.Printf("%s\n---------------\n\n", fragment)
 	}
 
 	/*
