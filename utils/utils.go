@@ -158,23 +158,6 @@ func readFile(filename string) (fileData []byte, err error) {
 	return
 }
 
-func main() {
-	fdata, _ := readFile("../files/1e519bd2685e43f3080a1903b9506b9e782fb483")
-	text := string(fdata)
-	text = trimS(text)
-
-	fragments, err := getKeywordContext(text, "rambler-co", 640, 5)
-	if err != nil {
-		fmt.Println(err.Error())
-		return
-	}
-
-	for _, fragment := range fragments {
-		fmt.Printf("%s\n\n", fragment)
-	}
-	return
-}
-
 type Fragment struct {
 	pLeft   *Fragment
 	pRight  *Fragment
@@ -188,10 +171,6 @@ func eq(f1, f2 *Fragment) bool {
 	return isEqual
 }
 
-func gt(f1, f2 *Fragment) bool {
-	return f1.Scope[0] > f2.Scope[1]
-}
-
 func in(f1, f2 *Fragment) bool {
 	if f1 == nil || f2 == nil {
 		return false
@@ -202,21 +181,13 @@ func in(f1, f2 *Fragment) bool {
 	return incl
 }
 
-func (f *Fragment) isLeaf() bool {
-	return f.pLeft == nil && f.pRight == nil
-}
-
-func (f *Fragment) length() int {
-	return f.Scope[1] - f.Scope[0]
-}
-
-func (f *Fragment) replace(child, fragment *Fragment) {
+func (f *Fragment) Replace(child, fragment *Fragment) {
 	if f == nil {
 		return
 	}
 
 	if eq(f, child) {
-		f.pParent.replace(f, child)
+		f.pParent.Replace(f, child)
 		return
 	}
 
@@ -229,43 +200,14 @@ func (f *Fragment) replace(child, fragment *Fragment) {
 	fragment.pParent = f
 }
 
-func join(f1, f2 *Fragment) (f *Fragment) {
-	f = new(Fragment)
-	f.Scope = make([]int, 2, 2)
-	f.Scope[0] = f1.Scope[0]
-	if f2.Scope[0] < f.Scope[0] {
-		f.Scope[0] = f2.Scope[0]
-	}
-	f.Scope[1] = f1.Scope[1]
-	if f2.Scope[1] > f.Scope[1] {
-		f.Scope[1] = f2.Scope[1]
-	}
-	return
-}
-
-func _replaceHead(f, child *Fragment) *Fragment {
-	pHead := join(f, child)
-	pHead.pLeft = f
-
-	f.pParent.replace(f, pHead)
-	f.pParent = pHead
-
-	if pHead.pLeft.Scope[0] < child.Scope[0] {
-		pHead.pRight = child
-	} else {
-		pHead.pRight = pHead.pLeft
-		pHead.pLeft = child
-	}
-	return pHead
-}
-
 func rotateHead(f, child *Fragment) *Fragment {
 	pHead := new(Fragment)
 	pHead.Scope = make([]int, 2, 2)
 
 	pHead.pLeft = f
 	pHead.pRight = child
-	f.pParent.replace(f, pHead)
+	child.pParent = pHead
+	f.pParent.Replace(f, pHead)
 	f.pParent = pHead
 
 	pHead.Scope[0] = f.Scope[0]
@@ -282,6 +224,18 @@ func rotateHead(f, child *Fragment) *Fragment {
 	return pHead
 }
 
+func unionLength(f1, f2 *Fragment) int {
+	minElement := f1.Scope[0]
+	if f2.Scope[0] < minElement {
+		minElement = f2.Scope[0]
+	}
+	maxElement := f2.Scope[1]
+	if f2.Scope[1] > maxElement {
+		maxElement = f2.Scope[1]
+	}
+	return maxElement - minElement
+}
+
 func (f *Fragment) Add(child *Fragment) *Fragment {
 	if eq(f, child) {
 		return f
@@ -289,7 +243,7 @@ func (f *Fragment) Add(child *Fragment) *Fragment {
 
 	if in(f, child) {
 		child.pLeft = f
-		f.pParent.replace(f, child)
+		f.pParent.Replace(f, child)
 		f.pParent = child
 
 		return child
@@ -297,10 +251,10 @@ func (f *Fragment) Add(child *Fragment) *Fragment {
 
 	if in(child, f) {
 		if in(child, f.pLeft) {
-			f.pLeft = f.pLeft.add(child)
+			f.pLeft = f.pLeft.Add(child)
 			return f
 		} else if in(child, f.pRight) {
-			f.pRight = f.pRight.add(child)
+			f.pRight = f.pRight.Add(child)
 			return f
 		}
 
@@ -311,106 +265,62 @@ func (f *Fragment) Add(child *Fragment) *Fragment {
 				return f
 			}
 
-			pHead := _replaceHead(f.pLeft, child)
+			pHead := rotateHead(f.pLeft, child)
 			return pHead
 		}
 
-		leftJoin := join(f.pLeft, child)
-		rightJoin := join(f.pRight, child)
 		var pHead *Fragment
-
-		if leftJoin.length() < rightJoin.length() {
-			pHead = _replaceHead(f.pLeft, child)
+		if unionLength(f.pLeft, child) < unionLength(f.pRight, child) {
+			pHead = rotateHead(f.pLeft, child)
 		} else {
-			pHead = _replaceHead(f.pRight, child)
+			pHead = rotateHead(f.pRight, child)
 		}
 
 		if in(f.pRight, pHead) {
 			pRight := f.pRight
 			f.pRight = nil
-			pHead = pHead.add(pRight)
+			pHead = pHead.Add(pRight)
+
 		} else if in(f.pLeft, pHead) {
 			pLeft := f.pLeft
 			f.pLeft = nil
-			pHead = pHead.add(pLeft)
+			pHead = pHead.Add(pLeft)
 		}
 		return f
 	}
 
-	pHead := _replaceHead(f, child)
+	pHead := rotateHead(f, child)
 	return pHead
 }
 
-func (f *Fragment) add(child *Fragment) *Fragment {
-	if eq(f, child) {
-		return f
+func main() {
+	fdata, _ := readFile("../files/1e519bd2685e43f3080a1903b9506b9e782fb483")
+	text := string(fdata)
+	text = trimS(text)
+
+	fragments, err := getKeywordContext(text, "rambler-co", 640, 5)
+	if err != nil {
+		fmt.Println(err.Error())
+		return
 	}
 
-	if in(f, child) {
-		child.pLeft = f
-		f.pParent.replace(f, child)
-		f.pParent = child
-
-		return child
+	for _, fragment := range fragments {
+		fmt.Printf("%s\n\n", fragment)
 	}
 
-	if f.isLeaf() {
-		if in(child, f) {
-			f.pLeft = child
-			child.pParent = f
-			return f
-		}
+	pHead := new(Fragment)
+	pHead.Scope = []int{3, 6}
 
-		pHead := _replaceHead(f, child)
-		return pHead
-	}
+	pElement := new(Fragment)
+	pElement.Scope = []int{7, 16}
 
-	if f.pLeft != nil && f.pRight == nil {
-		if in(child, f) {
-			if in(child, f.pLeft) {
-				f.pLeft = f.pLeft.add(child)
-				return f
-			}
+	pHead = pHead.Add(pElement)
 
-			pHead := _replaceHead(f.pLeft, child)
-			return pHead
-		}
+	fmt.Printf("\n%v\n", pHead)
+	fmt.Printf("\n%v\n", pHead.pLeft)
+	fmt.Printf("\n%v\n", pHead.pRight)
 
-		pHead := _replaceHead(f, child)
-		return pHead
-	}
+	fmt.Printf("%v\n", pElement)
 
-	if in(child, f) {
-		if in(child, f.pLeft) {
-			f.pLeft = f.pLeft.add(child)
-			return f
-		} else if in(child, f.pRight) {
-			f.pRight = f.pRight.add(child)
-			return f
-		}
-
-		leftJoin := join(f.pLeft, child)
-		rightJoin := join(f.pRight, child)
-		var pHead *Fragment
-
-		if leftJoin.length() < rightJoin.length() {
-			pHead = _replaceHead(f.pLeft, child)
-		} else {
-			pHead = _replaceHead(f.pRight, child)
-		}
-
-		if in(f.pRight, pHead) {
-			pRight := f.pRight
-			f.pRight = nil
-			pHead = pHead.add(pRight)
-		} else if in(f.pLeft, pHead) {
-			pLeft := f.pLeft
-			f.pLeft = nil
-			pHead = pHead.add(pLeft)
-		}
-		return f
-	}
-
-	pHead := _replaceHead(f, child)
-	return pHead
+	return
 }
