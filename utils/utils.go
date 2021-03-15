@@ -177,8 +177,8 @@ func (f *Fragment) Replace(child, fragment *Fragment) {
 		return
 	}
 
-	if eq(f, child) {
-		f.pParent.Replace(f, child)
+	if eq(f, fragment) {
+		f.pParent.Replace(f, fragment)
 		return
 	}
 
