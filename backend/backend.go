@@ -1,14 +1,18 @@
 package backend
 
 import (
-	"TukTuk/config"
-	"TukTuk/database"
 	"database/sql"
-	"golang.org/x/crypto/acme/autocert"
 	"html/template"
 	"io"
-	"log"
-	"strings"
+	"math/rand"
+	"strconv"
+	"time"
+
+	"../config"
+	"../database"
+	"../gitsearch"
+
+	"golang.org/x/crypto/acme/autocert"
 
 	"github.com/gorilla/sessions"
 	"github.com/labstack/echo"
@@ -43,13 +47,13 @@ type ErrorContext struct {
 }
 
 //start backend
-func StartBack(db *sql.DB, Domain string) {
-	domain = Domain
+func StartBack(db *sql.DB) {
 	e := echo.New()
 	//pass db pointer to echo handler
 	t := &Template{
 		templates: template.Must(template.ParseGlob("frontend/templates/*")),
 	}
+
 	secret := []byte(RandStringBytes(20))
 	e.AutoTLSManager.Cache = autocert.DirCache("/var/www/.cache")
 	e.Use(session.Middleware(sessions.NewCookieStore(secret)))
@@ -60,137 +64,73 @@ func StartBack(db *sql.DB, Domain string) {
 			return h(cc)
 		}
 	})
+
 	credentials.username = config.Settings.AdminCredentials.Username
 	credentials.password = config.Settings.AdminCredentials.Password
+
 	//e.Pre(middleware.HTTPSRedirect())
 	e.File("/", "frontend/index.html", loginRequired)
-	e.File("/tcp", "frontend/tcp.html", loginRequired)
-	e.File("/dns", "frontend/dns.html", loginRequired)
+	e.File("/settings", "frontend/settings.html", loginRequired)
 	e.Static("/static", "frontend/static/")
-	e.GET("/api/:proto", getRequests, loginRequired)
-	e.GET("/api/request/:proto", getRequest, loginRequired)
-	e.POST("/api/dns/new", generateDomain, loginRequired)
-	e.POST("/api/dns/delete", deleteDomain, loginRequired)
-	e.POST("/api/tcp/new", startPlainTCP, loginRequired)
-	e.GET("/api/tcp/data", getTCPResults, loginRequired)
-	e.POST("/api/tcp/shutdown", stopTCPServer, loginRequired)
-	e.GET("/api/tcp/running", getRunningTCPServers, loginRequired)
-	e.POST("/api/ftp/start", startFTP, loginRequired)
-	e.POST("/api/ftp/shutdown", shutdownFTP, loginRequired)
+
+	e.GET("/api/get/:datatype/:status", getReports, loginRequired)
+	e.GET("/api/mark/:datatype/:result_id/:status", markResult, loginRequired)
+
 	e.GET("/login", loginPage)
 	e.POST("/login", handleLogin)
-	e.GET("/api/dns/available", getAvailableDomains, loginRequired)
-	e.POST("/api/smb/start", startSMBServer, loginRequired)
-	e.POST("/api/smb/shutdown", stopSMBServer, loginRequired)
+
 	e.HideBanner = true
 	e.Debug = true
-	e.Logger.Fatal(e.StartAutoTLS(":1234"))
-	//e.Logger.Fatal(e.Start(":1234"))
+	//e.Logger.Fatal(e.StartAutoTLS(":1234"))
+	e.Logger.Fatal(e.Start(":1234"))
 }
 
 //handler for getting requests from database
 
-func getRequests(c echo.Context) error {
-	table := ""
-	switch c.Param("proto") {
-	case "http":
-		table = "http"
-	case "ftp":
-		table = "ftp"
-	case "https":
-		table = "https"
-	case "dns":
-		table = "dns"
-	case "smtp":
-		table = "smtp"
-	case "ldap":
-		table = "ldap"
-	case "smb":
-		table = "smb"
-	default:
-		return c.String(404, "Not Found")
-	}
-	limit := c.FormValue("limit")
-	cc := c.(*database.DBContext)
-	rows, err := cc.Db.Query("select id, data, source_ip, time from "+table+" order by id desc limit $1", limit)
-	if err != nil {
-		log.Println(err)
-		er := &Result{Error: "true"}
-		return c.JSON(200, er)
-	}
-	rr := make([]Request, 0)
-	for rows.Next() {
-		r := Request{}
-		err := rows.Scan(&r.Id, &r.Data, &r.SourceIp, &r.Time)
-		if err != nil {
-			log.Println(err)
-			er := &Result{Error: "true"}
-			return c.JSON(200, er)
-		}
-		rr = append(rr, r)
-	}
-	return c.JSON(200, rr)
+func markResult(c echo.Context) (err error) {
+	return c.String(404, "Not Found")
 }
 
-func getRequest(c echo.Context) error {
-	table := ""
-	switch c.Param("proto") {
-	case "http":
-		table = "http"
-	case "ftp":
-		table = "ftp"
-	case "https":
-		table = "https"
-	case "dns":
-		table = "dns"
-	case "smtp":
-		table = "smtp"
-	case "ldap":
-		table = "ldap"
-	case "smb":
-		table = "smb"
+func getReports(c echo.Context) (err error) {
+	var result gitsearch.WebUIResult
+	var limit, offset int
+
+	limitParam := c.FormValue("limit")
+	if limitParam == "" {
+		limit = 0
+	} else {
+		limit, err = strconv.Atoi(limitParam)
+	}
+
+	if err != nil {
+		return err
+	}
+	offsetParam := c.FormValue("offset")
+	if offsetParam == "" {
+		offset = 0
+	} else {
+		offset, err = strconv.Atoi(offsetParam)
+	}
+
+	switch c.Param("datatype") {
+	case "github":
+		result, err = gitsearch.GetGitReports(c.Param("status"), limit, offset)
+		return c.JSON(200, result)
+
 	default:
 		return c.String(404, "Not Found")
 	}
-	id := c.QueryParam("id")
-	cc := c.(*database.DBContext)
-	var res bool
-	rows, err := cc.Db.Query("select exists(select id from "+table+" where id = $1)", id)
-	if err != nil {
-		log.Println(err)
-		er := &Result{Error: "true"}
-		return c.JSON(200, er)
+
+	return c.String(404, "Not Found")
+}
+
+const letterBytes = "abcdefghijklmnopqrstuvwxyz"
+
+func RandStringBytes(n int) string {
+	rand.Seed(time.Now().Unix())
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = letterBytes[rand.Intn(len(letterBytes))]
 	}
-	for rows.Next() {
-		err = rows.Scan(&res)
-		if err != nil {
-			log.Println(err)
-			er := &Result{Error: "true"}
-			return c.JSON(200, er)
-		}
-	}
-	if res {
-		rows, err = cc.Db.Query("select data, source_ip, time from "+table+" where id = $1", id)
-		if err != nil {
-			log.Println(err)
-			er := &Result{Error: "true"}
-			return c.JSON(200, er)
-		}
-		r := &Request{}
-		for rows.Next() {
-			err := rows.Scan(&r.Data, &r.SourceIp, &r.Time)
-			if err != nil {
-				log.Println(err)
-				er := &Result{Error: "true"}
-				return c.JSON(200, er)
-			}
-		}
-		s := &SingleRequest{
-			R:     r,
-			Table: strings.ToTitle(table),
-		}
-		return c.Render(200, "request.html", s)
-	}
-	er := &Result{Error: "true"}
-	return c.JSON(200, er)
+	return string(b)
 }

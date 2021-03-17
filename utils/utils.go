@@ -1,9 +1,8 @@
-package main
+package textutils
 
 import (
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"strings"
 	"unicode/utf8"
@@ -82,7 +81,7 @@ func getKeywordContext(text, keyword string, maxFragLen, desiredLines int) (frag
 			}
 		}
 
-		fragment := Fragment{Scope: []int{lBorder, rBorder}}
+		fragment := Fragment{lBorder, rBorder, []int{ind, ind + len(keyword)}}
 		fragments = append(fragments, fragment)
 	}
 	return fragments, err
@@ -116,7 +115,7 @@ func getKeywordIndices(text, keyword string) (indices []int) {
 	return
 }
 
-func trimS(text string) (trimmed string) {
+func TrimS(text string) (trimmed string) {
 	last := text
 	trimmed = strings.Replace(text, "\n\n", "\n", -1)
 	trimmed = strings.Replace(trimmed, "\t\t", "\t", -1)
@@ -129,7 +128,7 @@ func trimS(text string) (trimmed string) {
 	return
 }
 
-func readFile(filename string) (fileData []byte, err error) {
+func ReadFile(filename string) (fileData []byte, err error) {
 	file, err := os.Open(filename)
 	if err != nil {
 		return
@@ -150,193 +149,108 @@ func readFile(filename string) (fileData []byte, err error) {
 }
 
 type Fragment struct {
-	pLeft   *Fragment
-	pRight  *Fragment
-	pParent *Fragment
-	Scope   []int
+	Left           int
+	Right          int
+	KeywordIndices []int
 }
 
-func eq(f1, f2 *Fragment) bool {
-	isEqual := f1.Scope[0] == f2.Scope[0]
-	isEqual = isEqual && f1.Scope[1] == f2.Scope[1]
-	return isEqual
-}
-
-func in(f1, f2 *Fragment) bool {
-	if f1 == nil || f2 == nil {
-		return false
-	}
-
-	incl := f2.Scope[0] <= f1.Scope[0]
-	incl = incl && f1.Scope[1] <= f2.Scope[1]
-	return incl
-}
-
-func (f *Fragment) Replace(child, fragment *Fragment) {
-	if f == nil {
-		return
-	}
-
-	if eq(f, fragment) {
-		f.pParent.Replace(f, fragment)
-		return
-	}
-
-	if f.pLeft == child {
-		f.pLeft = fragment
-	} else {
-		f.pRight = fragment
-	}
-
-	fragment.pParent = f
-}
-
-func rotateHead(f, child *Fragment) *Fragment {
-	pHead := new(Fragment)
-	pHead.Scope = make([]int, 2, 2)
-
-	pHead.pLeft = f
-	pHead.pRight = child
-	child.pParent = pHead
-	f.pParent.Replace(f, pHead)
-	f.pParent = pHead
-
-	pHead.Scope[0] = f.Scope[0]
-	if child.Scope[0] < pHead.Scope[0] {
-		pHead.Scope[0] = child.Scope[0]
-		pHead.pRight = f
-		pHead.pLeft = child
-	}
-
-	pHead.Scope[1] = f.Scope[1]
-	if child.Scope[1] > pHead.Scope[1] {
-		pHead.Scope[1] = child.Scope[1]
-	}
-	return pHead
+func (f *Fragment) Length() int {
+	return f.Right - f.Left
 }
 
 func unionLength(f1, f2 *Fragment) int {
-	minElement := f1.Scope[0]
-	if f2.Scope[0] < minElement {
-		minElement = f2.Scope[0]
+	minElement := f1.Left
+	if minElement > f2.Left {
+		minElement = f2.Left
 	}
-	maxElement := f2.Scope[1]
-	if f2.Scope[1] > maxElement {
-		maxElement = f2.Scope[1]
+
+	maxElement := f1.Right
+	if maxElement < f2.Right {
+		maxElement = f2.Right
 	}
 	return maxElement - minElement
 }
 
-func (f *Fragment) Add(child *Fragment) *Fragment {
-	if eq(f, child) {
-		return f
+func joinFragments(f1, f2 *Fragment) Fragment {
+	var newFragment Fragment
+	newFragment.Left = f1.Left
+	if f2.Left < newFragment.Left {
+		newFragment.Left = f2.Left
+	}
+	newFragment.Right = f1.Right
+	if f2.Right > newFragment.Right {
+		newFragment.Right = f2.Right
 	}
 
-	if in(f, child) {
-		child.pLeft = f
-		f.pParent.Replace(f, child)
-		f.pParent = child
+	nf1Indices := len(f1.KeywordIndices)
+	nf2Indices := len(f2.KeywordIndices)
 
-		return child
-	}
+	newFragment.KeywordIndices = make([]int, 0, nf1Indices+nf2Indices)
+	newFragment.KeywordIndices = append(newFragment.KeywordIndices, f1.KeywordIndices...)
+	newFragment.KeywordIndices = append(newFragment.KeywordIndices, f2.KeywordIndices...)
 
-	if in(child, f) {
-		if in(child, f.pLeft) {
-			f.pLeft = f.pLeft.Add(child)
-			return f
-		} else if in(child, f.pRight) {
-			f.pRight = f.pRight.Add(child)
-			return f
+	return newFragment
+}
+
+func unionFragments(fragments []Fragment, maxLen int) ([]Fragment, error) {
+	newFragments := make([]Fragment, 0, len(fragments))
+	usedFragments := make(map[int]bool)
+	nFragments := len(fragments)
+	var err error
+
+	currFragmentInd := 0
+	for currFragmentInd < nFragments {
+		minElementInd := 0
+		minUnionValue := maxLen + 1
+
+		if usedFragments[currFragmentInd] {
+			continue
 		}
 
-		if f.pRight == nil {
-			if f.pLeft == nil {
-				f.pLeft = child
-				child.pParent = f
-				return f
+		for i, fragment := range fragments {
+			if !usedFragments[i] && i != currFragmentInd {
+				currUnionLength := unionLength(&fragments[currFragmentInd], &fragment)
+				if currUnionLength < minUnionValue {
+					minUnionValue = currUnionLength
+					minElementInd = i
+				}
 			}
-
-			pHead := rotateHead(f.pLeft, child)
-			return pHead
 		}
 
-		var pHead *Fragment
-		if unionLength(f.pLeft, child) < unionLength(f.pRight, child) {
-			pHead = rotateHead(f.pLeft, child)
+		if minUnionValue > maxLen {
+			if fragments[currFragmentInd].Length() <= maxLen {
+				newFragments = append(newFragments, fragments[currFragmentInd])
+			} else {
+				err = fmt.Errorf("There is element in array with length greater then maxLen")
+				return []Fragment{}, err
+			}
 		} else {
-			pHead = rotateHead(f.pRight, child)
+			fragments[minElementInd] = joinFragments(&fragments[currFragmentInd], &fragments[minElementInd])
 		}
-
-		if in(f.pRight, pHead) {
-			pRight := f.pRight
-			f.pRight = nil
-			pHead = pHead.Add(pRight)
-
-		} else if in(f.pLeft, pHead) {
-			pLeft := f.pLeft
-			f.pLeft = nil
-			pHead = pHead.Add(pLeft)
-		}
-		return f
+		usedFragments[currFragmentInd] = true
+		currFragmentInd++
 	}
-
-	pHead := rotateHead(f, child)
-	return pHead
+	return newFragments, err
 }
 
-func (f *Fragment) Length() int {
-	return f.Scope[1] - f.Scope[0]
-}
-
-func (f *Fragment) Prune(maxLen int) (fragments []Fragment) {
-	fragments = make([]Fragment, 0, 8)
-	if f.Length() < maxLen {
-		fragments = append(fragments, *f)
-	} else {
-		if f.pLeft != nil {
-			fragments = append(fragments, f.pLeft.Prune(maxLen)...)
-		}
-		if f.pRight != nil {
-			fragments = append(fragments, f.pLeft.Prune(maxLen)...)
-		}
-	}
-	return
-}
-
-func GenTextFragments(text string, keywords []string, maxFragLen, desiredLines int) (results []string, err error) {
-	fragments := make([]Fragment, 0, 64)
-	results = make([]string, 0, 64)
-	var frags []Fragment
+func GenTextFragments(text string, keywords []string, maxFragmentLen, maxUnionLen, desiredLines int) (results []Fragment, err error) {
+	fragments := make([]Fragment, 0, 32)
+	var kwContext []Fragment
 
 	for _, keyword := range keywords {
-		frags, err = getKeywordContext(text, keyword, maxFragLen, desiredLines)
+		kwContext, err = getKeywordContext(text, keyword, maxFragmentLen, desiredLines)
 		if err != nil {
 			return
 		}
-		fragments = append(fragments, frags...)
+
+		fragments = append(fragments, kwContext...)
 	}
 
-	if len(fragments) == 0 {
-		return
-	}
-
-	pHead := &fragments[0]
-	fragments = fragments[1:]
-
-	for _, fragment := range fragments {
-		pHead = pHead.Add(&fragment)
-	}
-
-	for _, fragment := range pHead.Prune(maxFragLen) {
-		f0 := fragment.Scope[0]
-		f1 := fragment.Scope[1]
-
-		results = append(results, text[f0:f1])
-	}
-
+	results, err = unionFragments(fragments, maxUnionLen)
 	return
 }
 
+/*
 func main() {
 	keywords := []string{"rambler-co", "password"}
 
@@ -345,42 +259,34 @@ func main() {
 		fmt.Println(err.Error())
 	}
 
-	for _, f := range files {
-		fmt.Println(f.Name())
-		fdata, _ := readFile("../files/" + f.Name())
+	for _, file := range files {
+
+		fName := "../files/" + file.Name()
+		fdata, _ := readFile(fName) //+ f.Name())
 		text := string(fdata)
 		text = trimS(text)
 
-		fragments, _ := GenTextFragments(text, keywords, 640, 5)
+		kwContext, err := getKeywordContext(text, keywords[0], 480, 5)
+		if err != nil {
+			fmt.Println(err.Error())
+			return
+		}
 
+		fragments, err := unionFragments(kwContext, 640)
+		if err != nil {
+			fmt.Println(err.Error())
+			return
+		}
+
+		fmt.Println(fName)
 		for _, fragment := range fragments {
-			fmt.Printf("%s\n---------------\n\n", fragment)
+			f0 := fragment.Left
+			f1 := fragment.Right
+
+			fmt.Printf("%s\n-----------------\n", text[f0:f1])
 		}
 	}
 
-	/*
-		pHead := new(Fragment)
-		pHead.Scope = []int{3, 8}
-
-		pElement := new(Fragment)
-		pElement.Scope = []int{4, 5}
-
-		pHead = pHead.Add(pElement)
-
-		pElement2 := new(Fragment)
-		pElement2.Scope = []int{6, 7}
-		pHead = pHead.Add(pElement2)
-
-		pElement3 := new(Fragment)
-		pElement3.Scope = []int{4, 5}
-		pHead = pHead.Add(pElement3)
-
-		fmt.Printf("\n%v\n", pHead.pParent)
-		fmt.Printf("\n%v\n", pHead)
-		fmt.Printf("%v\n", pElement)
-		fmt.Printf("%v\n", pElement2)
-		fmt.Printf("%v\n", pElement3)
-	*/
-
 	return
 }
+*/

@@ -3,9 +3,10 @@ package config
 //Initialization structures
 
 type InitStruct struct {
-	Github        GithubSetting        `json:"github"`
-	DBCredentials DBCredentialsSetting `json:"db_redentials"`
-	Globals       GlobalConfig         `json:"globals"`
+	Github           GithubSetting          `json:"github"`
+	DBCredentials    DBCredentialsSetting   `json:"db_redentials"`
+	Globals          GlobalConfig           `json:"globals"`
+	AdminCredentials AdminCredentialsConfig `json:"admin_credentials"`
 }
 
 type DBCredentialsSetting struct {
@@ -27,4 +28,9 @@ type GlobalConfig struct {
 	Keywords    []string `json:"keywords"`
 	ExcludeList []string `json:"exclude"`
 	ContentDir  string   `json:"content_dir"`
+}
+
+type AdminCredentialsConfig struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
 }

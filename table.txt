@@ -1,2 +1,24 @@
 create table github_reports (id serial, shahash varchar, status varchar, keyword varchar, owner varchar, info jsonb, url varchar, time integer);
-create table report_fragments (id serial, content text, reject_id integer, report_id integer, shahash varchar);
+create table report_fragments (id serial, content bytea, reject_id integer, report_id integer, shahash varchar, keywords jsonb);
+create table rejection_rules (id serial, rulename varchar, expr varchar, example varchar);
+
+grant all privileges on table github_reports to monitoring;
+grant all privileges on table github_reports_id_seq to monitoring;
+
+grant all privileges on table report_fragments to monitoring;
+grant all privileges on table report_fragments_id_seq to monitoring;
+
+grant all privileges on table rejection_rules to monitoring;
+grant all privileges on table rejection_rules_id_seq to monitoring;
+
+insert into rejection_rules (rulename, expr, example) values ('manual', '', '');
+insert into rejection_rules (rulename, expr, example) values ('verified', '', '');
+insert into rejection_rules (rulename, expr, example) values ('verified_auto_remove', '', '');
+
++------+----------------------+--------+-----------+
+| id   | rulename             | expr   | example   |
+|------+----------------------+--------+-----------|
+| 1    | manual               |        |           |
+| 2    | verified             |        |           |
+| 3    | verified_auto_remove |        |           |
++------+----------------------+--------+-----------+

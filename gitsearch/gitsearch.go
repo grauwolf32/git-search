@@ -1,16 +1,17 @@
-package main
+package gitsearch
 
 import (
 	"bytes"
-	"runtime"
 	"compress/gzip"
 	"context"
+	"crypto/sha1"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
+	"runtime"
 	"sync"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 
 	"../config"
 	"../database"
+	textutils "../utils"
 	"golang.org/x/time/rate"
 	//"log"
 )
@@ -78,7 +80,16 @@ type GitDBManager struct {
 	Database *sql.DB
 }
 
-func pError(err error)(message string){
+type TextFragment struct {
+	Text           string `json:"text"`
+	KeywordIndices []int  `json:"ids"`
+	RejectId       int    `json:"reject_id"`
+	ReportId       int    `json:"report_id"`
+	ShaHash        string `json:"shahash"`
+	Id             int    `json:"id"`
+}
+
+func pError(err error) (message string) {
 	errMessage := err.Error()
 	_, file, line, _ := runtime.Caller(1)
 
@@ -106,19 +117,19 @@ func getBodyReader(resp *http.Response) (bodyReader io.ReadCloser, err error) {
 	}
 
 	if err != nil {
-		fmt.Println("Ex: %v\n",err)
+		fmt.Println("Ex: %v\n", err)
 		resp.Body.Close()
 	}
 
 	return bodyReader, err
 }
 
-func buildGitSearchQuery(keyword string, lang string, infile bool)(query string){
+func buildGitSearchQuery(keyword string, lang string, infile bool) (query string) {
 	query = keyword
-	if infile{
+	if infile {
 		query += "+in:file"
 	}
-	if lang != ""{
+	if lang != "" {
 		query += "+language:" + lang
 	}
 	return query
@@ -176,6 +187,30 @@ func (gitDBManager *GitDBManager) insert(report GitReport) error {
 	return err
 }
 
+func (gitDBManager *GitDBManager) insertTextFragment(report GitReport, fragment textutils.Fragment, text string) error {
+	keywords := fragment.KeywordIndices
+	for i, _ := range keywords {
+		keywords[i] -= fragment.Left
+	}
+	kwJson, err := json.Marshal(keywords)
+
+	if err != nil {
+		return err
+	}
+
+	content := []byte(text[fragment.Left:fragment.Right])
+	shahash := fmt.Sprintf("%x", sha1.Sum(content))
+
+	_, err = gitDBManager.Database.Exec("INSERT INTO report_fragments (content, reject_id, report_id, shahash, keywords) VALUES ($1, $2, $3, $4, $5);",
+		content,
+		0,
+		report.Id,
+		shahash,
+		kwJson)
+
+	return err
+}
+
 func (gitDBManager *GitDBManager) updateStatus(report GitReport) error {
 	_, err := gitDBManager.Database.Exec("UPDATE github_reports SET status=$1 WHERE id=$2;",
 		report.Status,
@@ -197,7 +232,7 @@ func (gitDBManager *GitDBManager) check(item GitSearchItem) (exist bool, err err
 	for rows.Next() {
 		err = rows.Scan(&id)
 		if err != nil {
-			fmt.Printf("Eax: %v\n",err)
+			fmt.Printf("Eax: %v\n", err)
 
 			return
 		}
@@ -233,6 +268,26 @@ func (gitDBManager *GitDBManager) selectReportByStatus(status string) (results c
 		return
 	}()
 
+	return
+}
+
+func (gitDBManager *GitDBManager) selectReportById(id int) (gitReport GitReport, err error) {
+	var reportJsonb []byte
+
+	reportQuery := "SELECT id, status, keyword, info, time FROM github_reports"
+	reportQuery += "WHERE id=$1;"
+
+	row := gitDBManager.Database.QueryRow(reportQuery, id)
+	err = row.Scan(&gitReport.Id, &gitReport.Status, &gitReport.Query, &reportJsonb, &gitReport.Time)
+
+	if err != nil {
+		return
+	}
+
+	err = json.Unmarshal(reportJsonb, &gitReport.SearchItem)
+	if err != nil {
+		return
+	}
 	return
 }
 
@@ -287,7 +342,7 @@ func githubSearchWorker(ctx context.Context, id int, jobchan chan GitSearchJob, 
 	defer wg.Done()
 	rl := rate.NewLimiter(0.5*rate.Every(time.Second), 1)
 	nTokens := len(config.Settings.Github.Tokens)
-	token := config.Settings.Github.Tokens[id % nTokens]
+	token := config.Settings.Github.Tokens[id%nTokens]
 
 	for job := range jobchan {
 		fmt.Printf("job %v started\n", job)
@@ -327,13 +382,13 @@ func genGitSearchJobs(ctx context.Context, keywords []string, jobchan chan GitSe
 	defer wg.Done()
 
 	nKeywords := len(keywords)
-	nQueries  := nKeywords*len(config.Settings.Github.Languages)
- 	queries   := make([]string, nQueries, nQueries)
+	nQueries := nKeywords * len(config.Settings.Github.Languages)
+	queries := make([]string, nQueries, nQueries)
 
-	for i, lang := range(config.Settings.Github.Languages){
-		for j, keyword := range(keywords){
-			query  := buildGitSearchQuery(keyword, lang, false)
-			queries[i*nKeywords + j] = query
+	for i, lang := range config.Settings.Github.Languages {
+		for j, keyword := range keywords {
+			query := buildGitSearchQuery(keyword, lang, false)
+			queries[i*nKeywords+j] = query
 		}
 	}
 
@@ -409,11 +464,11 @@ func GitSearch(ctx context.Context) (err error) {
 	errWg.Add(1)
 	go func(errchan chan string, chclose chan struct{}, wg *sync.WaitGroup) {
 		defer wg.Done()
-		var err string 
+		var err string
 
 		for {
 			select {
-			case  err = <- errchan:
+			case err = <-errchan:
 				fmt.Printf("%s", err)
 
 			case <-ctx.Done():
@@ -462,7 +517,7 @@ func processReportJob(report GitReport, resp *http.Response, errchan chan string
 	var gitFetchItem GitFetchItem
 	err = json.Unmarshal(body, &gitFetchItem)
 	if err != nil {
-		errchan <- pError(err) 
+		errchan <- pError(err)
 		return
 	}
 
@@ -478,16 +533,16 @@ func processReportJob(report GitReport, resp *http.Response, errchan chan string
 	}
 
 	err = ioutil.WriteFile(report.SearchItem.ShaHash, decoded, 0644)
-	if err != nil{
+	if err != nil {
 		errchan <- pError(err)
 		return
 	}
-	
+
 	dbManager := GitDBManager{database.DB}
 	report.Status = "fetched"
-	dbManager.updateStatus(report)
+	err = dbManager.updateStatus(report)
 
-	if err != nil{
+	if err != nil {
 		errchan <- pError(err)
 		return
 	}
@@ -502,12 +557,12 @@ func gitFetchReportWorker(ctx context.Context, id int, jobchan chan GitReport, e
 
 	rl := rate.NewLimiter(0.5*rate.Every(time.Second), 1)
 	nTokens := len(config.Settings.Github.Tokens)
-	token := config.Settings.Github.Tokens[id % nTokens]
-	
+	token := config.Settings.Github.Tokens[id%nTokens]
+
 	for report := range jobchan {
 		req, _ := buildFetchRequest(report.SearchItem.GitUrl, token)
 
-		MAKE_REQUEST:
+	MAKE_REQUEST:
 		for {
 			_ = rl.Wait(ctx)
 			resp, err := doRequest(req)
@@ -539,7 +594,7 @@ func gitFetchReportWorker(ctx context.Context, id int, jobchan chan GitReport, e
 	}
 }
 
-func GitFetch(ctx context.Context)(err error){
+func GitFetch(ctx context.Context) (err error) {
 	n := len(config.Settings.Github.Tokens)
 
 	dbManager := GitDBManager{database.DB}
@@ -548,7 +603,7 @@ func GitFetch(ctx context.Context)(err error){
 
 	status := "processing"
 	processingReports, err := dbManager.selectReportByStatus(status)
-	
+
 	if err != nil {
 		fmt.Printf("%s\n", pError(err))
 		return
@@ -560,11 +615,11 @@ func GitFetch(ctx context.Context)(err error){
 	errWg.Add(1)
 	go func(errchan chan string, chclose chan struct{}, wg *sync.WaitGroup) {
 		defer wg.Done()
-		var err string 
+		var err string
 
 		for {
 			select {
-			case  err = <- errchan:
+			case err = <-errchan:
 				fmt.Printf("%s", err)
 
 			case <-ctx.Done():
@@ -578,7 +633,7 @@ func GitFetch(ctx context.Context)(err error){
 		}
 	}(errchan, chclose, &errWg)
 
-	for i := 0; i < n; i++{
+	for i := 0; i < n; i++ {
 		wg.Add(1)
 		go gitFetchReportWorker(ctx, i, processingReports, errchan, &wg)
 	}
@@ -591,21 +646,182 @@ func GitFetch(ctx context.Context)(err error){
 	chclose <- struct{}{}
 	errWg.Wait()
 	fmt.Println("Err chanel closed!")
-    return
+	return
 }
 
-func processTextFragment(text string, before, after, lines int) (fragments []string, err error) {
-	return fragments, err
+func gitExtractionWorker(ctx context.Context, id int, jobchan chan GitReport, errchan chan string, wg *sync.WaitGroup) {
+	defer wg.Done()
+	contentDir := config.Settings.Globals.ContentDir
+	keywords := config.Settings.Globals.Keywords
+	dbManager := GitDBManager{database.DB}
+
+	for report := range jobchan {
+		shaHash := report.SearchItem.ShaHash
+		fName := contentDir + shaHash
+		fData, err := textutils.ReadFile(fName)
+		if err != nil {
+			errchan <- pError(err)
+			continue
+		}
+
+		text := string(fData)
+		text = textutils.TrimS(text)
+		textFragments, err := textutils.GenTextFragments(text, keywords, 480, 640, 5)
+
+		if err != nil {
+			errchan <- pError(err)
+			continue
+		}
+
+		for _, fragment := range textFragments {
+			err = dbManager.insertTextFragment(report, fragment, text)
+			if err != nil {
+				break
+			}
+		}
+
+		if err != nil {
+			errchan <- pError(err)
+			continue
+		}
+
+		report.Status = "fragmented"
+		err = dbManager.updateStatus(report)
+	}
 }
 
+func GitExtractFragments(ctx context.Context, nWorkers int) (err error) {
+	dbManager := GitDBManager{database.DB}
+	errchan := make(chan string, 4096)
+	chclose := make(chan struct{}, 1)
+
+	status := "fetched"
+	processingReports, err := dbManager.selectReportByStatus(status)
+
+	if err != nil {
+		fmt.Printf("%s\n", pError(err))
+		return
+	}
+
+	var wg sync.WaitGroup
+	var errWg sync.WaitGroup
+
+	errWg.Add(1)
+	go func(errchan chan string, chclose chan struct{}, wg *sync.WaitGroup) {
+		defer wg.Done()
+		var err string
+
+		for {
+			select {
+			case err = <-errchan:
+				fmt.Printf("%s", err)
+
+			case <-ctx.Done():
+				return
+
+			case <-chclose:
+				return
+
+			default:
+			}
+		}
+	}(errchan, chclose, &errWg)
+
+	for i := 0; i < nWorkers; i++ {
+		wg.Add(1)
+		go gitExtractionWorker(ctx, i, processingReports, errchan, &wg)
+	}
+
+	fmt.Println("Waiting for jobs!")
+	wg.Wait()
+	fmt.Println("All jobs done!")
+
+	close(errchan)
+	chclose <- struct{}{}
+	errWg.Wait()
+	fmt.Println("Err chanel closed!")
+	return
+}
+
+func GetGitReports(status string, limit, offset int) (WebUIResult, error) {
+	dbManager := GitDBManager{database.DB}
+	report, err := dbManager.QueryWebReport(limit, offset)
+
+	if err != nil {
+		return WebUIResult{}, err
+	}
+
+	return report, err
+}
+
+func (gitDBManager *GitDBManager) QueryWebReport(limit, offset int) (webReport WebUIResult, err error) {
+	query := "SELECT report_fragments.id, content, report_id, reject_id, shahash, keywords FROM report_fragments "
+	query += "INNER JOIN (SELECT id, time from github_reports  WHERE status='new') s "
+	query += "ON report_fragments.report_id=s.id ORDER BY time LIMIT $1 OFFSET $2;"
+
+	rows, err := gitDBManager.Database.Query(query, limit, offset*limit)
+	results := make(chan TextFragment, 512)
+
+	if err != nil {
+		close(results)
+		return
+	}
+
+	go func() {
+		defer close(results)
+		defer rows.Close()
+
+		for rows.Next() {
+			var textFragment TextFragment
+			var content []byte
+			var kwJson []byte
+
+			rows.Scan(&textFragment.Id, &content, &textFragment.ReportId, &textFragment.RejectId, &textFragment.ShaHash, &kwJson)
+			json.Unmarshal(kwJson, &textFragment.KeywordIndices)
+			textFragment.Text = string(content)
+			results <- textFragment
+		}
+		return
+	}()
+
+	tcQuery := "SELECT count(report_fragments.id) FROM report_fragments "
+	tcQuery += "INNER JOIN (SELECT id, time from github_reports  WHERE status='new') s "
+	tcQuery += "ON report_fragments.report_id=s.id;"
+
+	webReport.Fragments = make([]TextFragment, 0, 512)
+	row := gitDBManager.Database.QueryRow(tcQuery)
+	err = row.Scan(&webReport.TotalCount)
+
+	if err != nil {
+		close(results)
+		return
+	}
+
+	for tf := range results {
+		webReport.Fragments = append(webReport.Fragments, tf)
+	}
+
+	return
+}
+
+type WebUIResult struct {
+	TotalCount int            `json:"total_count"`
+	Fragments  []TextFragment `json:"fragments"`
+}
+
+/*
 func main() {
 	config.StartInit()
 	database.Connect()
 	defer database.DB.Close()
 
 	//_, err := database.DB.Exec("INSERT INTO github_reports  (shahash, status, keyword, owner) VALUES ($1, $2, $3, $4);", "123", "test", "kw", "me")
-    //fmt.Println(err)
-	ctx, _ := context.WithDeadline(context.Background(), time.Now().Add(40*time.Minute))
+	//fmt.Println(err)
+	//ctx, _ := context.WithDeadline(context.Background(), time.Now().Add(40*time.Minute))
 	//GitSearch(ctx)
-	GitFetch(ctx)
+	//GitFetch(ctx)
+	//GitExtractFragments(ctx, 2)
+	result, _ := GetGitReports("new", 10, 0)
+	fmt.Printf("%s\n", string(result))
 }
+*/

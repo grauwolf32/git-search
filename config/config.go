@@ -8,16 +8,17 @@ import (
 	"os"
 )
 
+// Settings : global settings for the project
 var Settings InitStruct
 
-//StartInit domain and alert from Config.json.example
+// StartInit : parse config file
 func StartInit() {
 	parseConfig()
 }
 
 func readConfig() []byte {
 	var fileData []byte
-	file, err := os.Open("../config/Config.json")
+	file, err := os.Open("./config/Config.json")
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -35,6 +36,7 @@ func readConfig() []byte {
 	}
 	return fileData
 }
+
 func parseConfig() {
 	b := readConfig()
 
