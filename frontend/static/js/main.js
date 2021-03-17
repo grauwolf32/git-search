@@ -36,6 +36,6 @@ var app = new Vue({
         }
     },
     created: function(){
-        this.getResults(pageType, "new", 10, 0)
+        this.getResults(this.pageType, "new", 10, 0)
     }
 })
