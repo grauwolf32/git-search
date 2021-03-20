@@ -4,12 +4,27 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 )
 
+type RejectRule struct {
+	Id   int
+	Rule *regexp.Regexp
+}
+
+type Fragment struct {
+	Left           int
+	Right          int
+	KeywordIndices []int
+}
+
+func (f *Fragment) Length() int {
+	return f.Right - f.Left
+}
+
 func getKeywordContext(text, keyword string, maxFragLen, desiredLines int) (fragmets []Fragment, err error) {
-	//text = trimS(text)
 	kwIndices := getKeywordIndices(text, keyword)
 	crlfIndices := getKeywordIndices(text, "\n")
 	fragments := make([]Fragment, 0, len(kwIndices))
@@ -80,6 +95,21 @@ func getKeywordContext(text, keyword string, maxFragLen, desiredLines int) (frag
 				}
 			}
 		}
+		check, _ := utf8.DecodeRuneInString(text[lBorder:rBorder])
+
+		if check == utf8.RuneError {
+			if lBorder > 0 {
+				lBorder--
+			}
+		}
+
+		check, _ = utf8.DecodeLastRuneInString(text[lBorder:rBorder])
+
+		if check == utf8.RuneError {
+			if rBorder < len(text)-1 {
+				rBorder++
+			}
+		}
 
 		fragment := Fragment{lBorder, rBorder, []int{ind, ind + len(keyword)}}
 		fragments = append(fragments, fragment)
@@ -88,7 +118,7 @@ func getKeywordContext(text, keyword string, maxFragLen, desiredLines int) (frag
 }
 
 func getKeywordIndices(text, keyword string) (indices []int) {
-	n := utf8.RuneCountInString(keyword)
+	n := len(keyword) //utf8.RuneCountInString(keyword)
 	ind := strings.Index(text, keyword)
 	indices = make([]int, 0, 32)
 
@@ -148,16 +178,6 @@ func ReadFile(filename string) (fileData []byte, err error) {
 	return
 }
 
-type Fragment struct {
-	Left           int
-	Right          int
-	KeywordIndices []int
-}
-
-func (f *Fragment) Length() int {
-	return f.Right - f.Left
-}
-
 func unionLength(f1, f2 *Fragment) int {
 	minElement := f1.Left
 	if minElement > f2.Left {
@@ -192,7 +212,8 @@ func joinFragments(f1, f2 *Fragment) Fragment {
 	return newFragment
 }
 
-func unionFragments(fragments []Fragment, maxLen int) ([]Fragment, error) {
+// UnionFragments merge fragments that are close to each other
+func UnionFragments(fragments []Fragment, maxLen int) ([]Fragment, error) {
 	newFragments := make([]Fragment, 0, len(fragments))
 	usedFragments := make(map[int]bool)
 	nFragments := len(fragments)
@@ -233,6 +254,7 @@ func unionFragments(fragments []Fragment, maxLen int) ([]Fragment, error) {
 	return newFragments, err
 }
 
+// GenTextFragments : generate fragments, that contain keywords, each keyword in separate fragment
 func GenTextFragments(text string, keywords []string, maxFragmentLen, maxUnionLen, desiredLines int) (results []Fragment, err error) {
 	fragments := make([]Fragment, 0, 32)
 	var kwContext []Fragment
@@ -246,47 +268,31 @@ func GenTextFragments(text string, keywords []string, maxFragmentLen, maxUnionLe
 		fragments = append(fragments, kwContext...)
 	}
 
-	results, err = unionFragments(fragments, maxUnionLen)
-	return
+	return fragments, err
 }
 
-/*
-func main() {
-	keywords := []string{"rambler-co", "password"}
+// CheckFragment : reject fragments than match rejection rules
+func CheckFragment(text string, fragment Fragment, rules []RejectRule) (matchId int) {
+	textFragment := []byte(text[fragment.Left:fragment.Right])
+	strippedFrag := text[:fragment.KeywordIndices[0]]
 
-	files, err := ioutil.ReadDir("../files")
-	if err != nil {
-		fmt.Println(err.Error())
+	for i := 2; i < len(fragment.KeywordIndices); i += 2 {
+		l := fragment.KeywordIndices[i-1]
+		r := fragment.KeywordIndices[i]
+		strippedFrag += text[l:r]
 	}
+	strippedFragBytes := []byte(strippedFrag)
 
-	for _, file := range files {
-
-		fName := "../files/" + file.Name()
-		fdata, _ := readFile(fName) //+ f.Name())
-		text := string(fdata)
-		text = trimS(text)
-
-		kwContext, err := getKeywordContext(text, keywords[0], 480, 5)
-		if err != nil {
-			fmt.Println(err.Error())
+	for _, rule := range rules {
+		if rule.Rule.Match(textFragment) {
+			if rule.Rule.Match(strippedFragBytes) {
+				continue
+			}
+		} else {
+			matchId = rule.Id
 			return
-		}
-
-		fragments, err := unionFragments(kwContext, 640)
-		if err != nil {
-			fmt.Println(err.Error())
-			return
-		}
-
-		fmt.Println(fName)
-		for _, fragment := range fragments {
-			f0 := fragment.Left
-			f1 := fragment.Right
-
-			fmt.Printf("%s\n-----------------\n", text[f0:f1])
 		}
 	}
 
 	return
 }
-*/

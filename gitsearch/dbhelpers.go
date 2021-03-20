@@ -88,10 +88,10 @@ func (gitDBManager *GitDBManager) insertTextFragment(report GitReport, fragment 
 	return err
 }
 
-func (gitDBManager *GitDBManager) updateStatus(report GitReport) error {
+func (gitDBManager *GitDBManager) updateStatus(reportId int, status string) error {
 	_, err := gitDBManager.Database.Exec("UPDATE github_reports SET status=$1 WHERE id=$2;",
-		report.Status,
-		report.Id)
+		status,
+		reportId)
 
 	return err
 }
@@ -109,10 +109,9 @@ func (gitDBManager *GitDBManager) check(item GitSearchItem) (exist bool, err err
 	for rows.Next() {
 		err = rows.Scan(&id)
 		if err != nil {
-			fmt.Printf("Eax: %v\n", err)
-
 			return
 		}
+
 		exist = true
 		return
 	}
@@ -165,16 +164,17 @@ func (gitDBManager *GitDBManager) selectReportById(id int) (gitReport GitReport,
 	if err != nil {
 		return
 	}
+
 	return
 }
 
 // QueryWebReport : generates high level report
-func (gitDBManager *GitDBManager) QueryWebReport(limit, offset int) (webReport WebUIResult, err error) {
-	query := "SELECT report_fragments.id, content, report_id, reject_id, shahash, keywords FROM report_fragments "
-	query += "INNER JOIN (SELECT id, time from github_reports  WHERE status='new') s "
-	query += "ON report_fragments.report_id=s.id ORDER BY time LIMIT $1 OFFSET $2;"
+func (gitDBManager *GitDBManager) QueryWebReport(limit, offset int, status string, rejectId int) (webReport WebUIResult, err error) {
+	query := "SELECT a.id, a.content, a.report_id, a.reject_id, a.shahash, a.keywords FROM (SELECT * "
+	query += "FROM report_fragments WHERE reject_id=$1) a INNER JOIN "
+	query += "(SELECT id, time from github_reports  WHERE status=$2) s ON a.report_id=s.id ORDER BY time LIMIT $3 OFFSET $4;"
 
-	rows, err := gitDBManager.Database.Query(query, limit, offset*limit)
+	rows, err := gitDBManager.Database.Query(query, rejectId, status, limit, offset*limit)
 	results := make(chan TextFragment, 512)
 
 	if err != nil {
@@ -199,12 +199,13 @@ func (gitDBManager *GitDBManager) QueryWebReport(limit, offset int) (webReport W
 		return
 	}()
 
-	tcQuery := "SELECT count(report_fragments.id) FROM report_fragments "
-	tcQuery += "INNER JOIN (SELECT id, time from github_reports  WHERE status='new') s "
-	tcQuery += "ON report_fragments.report_id=s.id;"
+	tcQuery := "SELECT count(a.id) FROM (SELECT id, report_id "
+	tcQuery += "FROM report_fragments WHERE reject_id=$1) a "
+	tcQuery += "INNER JOIN (SELECT id, time from github_reports  WHERE status=$2) s "
+	tcQuery += "ON a.report_id=s.id;"
 
 	webReport.Fragments = make([]TextFragment, 0, 512)
-	row := gitDBManager.Database.QueryRow(tcQuery)
+	row := gitDBManager.Database.QueryRow(tcQuery, rejectId, status)
 	err = row.Scan(&webReport.TotalCount)
 
 	if err != nil {
@@ -216,5 +217,58 @@ func (gitDBManager *GitDBManager) QueryWebReport(limit, offset int) (webReport W
 		webReport.Fragments = append(webReport.Fragments, tf)
 	}
 
+	return
+}
+
+// ChangeFragmentStatus Change fragment status (reject_id: 0: new, 1:manual, 2: verified, 3:verified_autoremove, n: regexp)
+func (gitDBManager *GitDBManager) ChangeFragmentStatus(RejectID, FragmentID int) (err error) {
+	query := "UPDATE report_fragments SET reject_id='$1' where id='$2';"
+	_, err = gitDBManager.Database.Exec(query, RejectID, FragmentID)
+	return
+}
+
+func (gitDBManager *GitDBManager) GetReportFragmentCount(ReportID, RejectID int) (count int, err error) {
+	query := "SELECT COUNT(id) FROM report_fragments "
+	query += "WHERE report_id='$1' AND reject_id='$2';"
+
+	row := gitDBManager.Database.QueryRow(query, ReportID, RejectID)
+	err = row.Scan(&count)
+	return
+}
+
+func (gitDBManager *GitDBManager) GetReportFragments(ReportID, RejectID int) (results chan TextFragment, err error) {
+	query := "SELECT id, content, report_id, reject_id, shahash, keywords FROM report_fragments "
+	query += "WHERE report_id='$1' AND reject_id='$2';"
+
+	rows, err := gitDBManager.Database.Query(query, ReportID, RejectID)
+	results = make(chan TextFragment, 512)
+
+	if err != nil {
+		close(results)
+		return
+	}
+
+	go func() {
+		defer close(results)
+		defer rows.Close()
+
+		for rows.Next() {
+			var fragment TextFragment
+			var kwJson []byte
+
+			rows.Scan(&fragment.Id, &fragment.Text, &fragment.ReportId, &fragment.RejectId, &fragment.ShaHash, &kwJson)
+			json.Unmarshal(kwJson, &fragment.KeywordIndices)
+			results <- fragment
+		}
+		return
+	}()
+
+	return
+}
+
+func (gitDBManager *GitDBManager) getFragmentReportId(fragmentId int) (reportId int, err error) {
+	query := "SELECT report_id FROM report_fragments WHERE id='$1';"
+	row := gitDBManager.Database.QueryRow(query, fragmentId)
+	err = row.Scan(&reportId)
 	return
 }

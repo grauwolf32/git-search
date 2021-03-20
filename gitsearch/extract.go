@@ -82,9 +82,7 @@ func gitExtractionWorker(ctx context.Context, id int, jobchan chan GitReport, er
 			errchan <- pError(err)
 			continue
 		}
-
-		report.Status = "fragmented"
-		err = dbManager.updateStatus(report)
+		err = dbManager.updateStatus(report.Id, "fragmented")
 	}
 }
 

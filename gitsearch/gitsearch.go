@@ -112,37 +112,54 @@ func getBodyReader(resp *http.Response) (bodyReader io.ReadCloser, err error) {
 
 func GetGitReports(status string, limit, offset int) (WebUIResult, error) {
 	dbManager := GitDBManager{database.DB}
-	report, err := dbManager.QueryWebReport(limit, offset)
+	report, err := dbManager.QueryWebReport(limit, offset, "new", 0)
 
 	if err != nil {
+		fmt.Println(err.Error())
 		return WebUIResult{}, err
 	}
 
 	return report, err
 }
 
-func MarkAsFalse(fragmentId int){
-	
+func MarkFragment(fragmentId, status int) (err error) {
+	dbManager := GitDBManager{database.DB}
+	err = dbManager.ChangeFragmentStatus(status, fragmentId)
+
+	reportId, err := dbManager.getFragmentReportId(fragmentId)
+	if err != nil {
+		return
+	}
+
+	fragmentCount, err := dbManager.GetReportFragmentCount(reportId, 0)
+	if err != nil {
+		return
+	}
+
+	if fragmentCount == 0 && status == 1 { // 1: manual rejection
+		status := "false"
+		err = dbManager.updateStatus(reportId, status)
+		return
+	}
+
+	if status == 2 {
+		var qError error
+		fragments, qError := dbManager.GetReportFragments(reportId, 0)
+		if qError != nil {
+			return
+		}
+
+		for fragment := range fragments {
+			dbManager.ChangeFragmentStatus(3, fragment.Id) // 3: fragment auto remove after verify
+		}
+
+		err = dbManager.updateStatus(reportId, "verified")
+	}
+
+	return
 }
 
 type WebUIResult struct {
 	TotalCount int            `json:"total_count"`
 	Fragments  []TextFragment `json:"fragments"`
 }
-
-/*
-func main() {
-	config.StartInit()
-	database.Connect()
-	defer database.DB.Close()
-
-	//_, err := database.DB.Exec("INSERT INTO github_reports  (shahash, status, keyword, owner) VALUES ($1, $2, $3, $4);", "123", "test", "kw", "me")
-	//fmt.Println(err)
-	//ctx, _ := context.WithDeadline(context.Background(), time.Now().Add(40*time.Minute))
-	//GitSearch(ctx)
-	//GitFetch(ctx)
-	//GitExtractFragments(ctx, 2)
-	result, _ := GetGitReports("new", 10, 0)
-	fmt.Printf("%s\n", string(result))
-}
-*/

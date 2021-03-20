@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"runtime"
 	"sync"
+	"time"
 
 	"./backend"
 	"./config"
@@ -28,6 +29,7 @@ func main() {
 
 	ctx := context.Background()
 	errchan := make(chan string, 256)
+
 	searchStart := make(chan struct{}, 1)
 	extractStart := make(chan struct{}, 1)
 	searchDone := make(chan struct{}, 1)
@@ -80,6 +82,8 @@ func main() {
 					return
 				}
 			default:
+				<-time.After(5 * time.Second)
+
 			}
 		}
 	}(ctx, searchStart, searchDone, errchan, &wg)
@@ -103,9 +107,9 @@ func main() {
 					return
 				}
 			default:
+				<-time.After(5 * time.Second)
 			}
 		}
-		return
 	}(ctx, extractStart, extractDone, errchan, &wg)
 
 	// searchStart <- struct{}{}
@@ -117,6 +121,7 @@ func main() {
 				extractStart <- struct{}{}
 			}
 		}
+		return
 	}()
 	searchDone <- struct{}{}
 
