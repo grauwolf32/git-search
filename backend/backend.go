@@ -2,6 +2,7 @@ package backend
 
 import (
 	"database/sql"
+	"fmt"
 	"html/template"
 	"io"
 	"math/rand"
@@ -70,11 +71,16 @@ func StartBack(db *sql.DB) {
 
 	//e.Pre(middleware.HTTPSRedirect())
 	e.File("/", "frontend/index.html", loginRequired)
-	e.File("/settings", "frontend/settings.html", loginRequired)
+	e.File("/settings", "frontend/index.html", loginRequired)
+	e.File("/github", "frontend/index.html", loginRequired)
+	e.File("/gist", "frontend/index.html", loginRequired)
+
 	e.Static("/static", "frontend/static/")
 
 	e.GET("/api/get/:datatype/:status", getReports, loginRequired)
-	e.GET("/api/mark/:datatype/:result_id/:status", markResult, loginRequired)
+	e.GET("/api/mark/:datatype/:fragment_id/:status", markResult, loginRequired)
+	e.GET("/api/info", getInfo, loginRequired)
+	e.GET("/api/regexp", getRegexp, loginRequired)
 
 	e.GET("/login", loginPage)
 	e.POST("/login", handleLogin)
@@ -88,7 +94,42 @@ func StartBack(db *sql.DB) {
 //handler for getting requests from database
 
 func markResult(c echo.Context) (err error) {
-	return c.String(404, "Not Found")
+	fragmentId, err := strconv.Atoi(c.Param("fragment_id"))
+
+	if err != nil {
+		return c.String(500, err.Error())
+	}
+
+	statusParam := c.Param("status")
+	var status int
+
+	switch statusParam {
+	case "false":
+		status = 1
+	case "valid":
+		status = 2
+	default:
+		err = fmt.Errorf("Invalid status")
+		return c.String(404, err.Error())
+	}
+
+	err = gitsearch.MarkFragment(fragmentId, status)
+	if err != nil {
+		return c.String(500, "Server error!")
+	}
+
+	return c.String(200, "OK")
+}
+
+func getRegexp(c echo.Context) (err error) {
+	return c.String(404, "Not implemented")
+}
+
+func getInfo(c echo.Context) (err error) {
+	info := config.Settings
+	info.AdminCredentials.Password = ""
+	info.DBCredentials.Password = ""
+	return c.JSON(200, info)
 }
 
 func getReports(c echo.Context) (err error) {

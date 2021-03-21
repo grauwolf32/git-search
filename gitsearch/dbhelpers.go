@@ -174,7 +174,7 @@ func (gitDBManager *GitDBManager) QueryWebReport(limit, offset int, status strin
 	query += "FROM report_fragments WHERE reject_id=$1) a INNER JOIN "
 	query += "(SELECT id, time from github_reports  WHERE status=$2) s ON a.report_id=s.id ORDER BY time LIMIT $3 OFFSET $4;"
 
-	rows, err := gitDBManager.Database.Query(query, rejectId, status, limit, offset*limit)
+	rows, err := gitDBManager.Database.Query(query, rejectId, status, limit, offset)
 	results := make(chan TextFragment, 512)
 
 	if err != nil {
@@ -194,6 +194,14 @@ func (gitDBManager *GitDBManager) QueryWebReport(limit, offset int, status strin
 			rows.Scan(&textFragment.Id, &content, &textFragment.ReportId, &textFragment.RejectId, &textFragment.ShaHash, &kwJson)
 			json.Unmarshal(kwJson, &textFragment.KeywordIndices)
 			textFragment.Text = string(content)
+			textFragment.KeywordIndices, err = textutils.ConvertFragmentToRunes(textFragment.Text, textFragment.KeywordIndices)
+
+			if err != nil {
+				fmt.Println(err.Error())
+				fmt.Printf("FragmentID: %d ReportID: %d\n", textFragment.Id, textFragment.ReportId)
+				continue
+			}
+
 			results <- textFragment
 		}
 		return
@@ -216,7 +224,6 @@ func (gitDBManager *GitDBManager) QueryWebReport(limit, offset int, status strin
 	for tf := range results {
 		webReport.Fragments = append(webReport.Fragments, tf)
 	}
-
 	return
 }
 

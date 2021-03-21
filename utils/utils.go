@@ -36,7 +36,7 @@ func getKeywordContext(text, keyword string, maxFragLen, desiredLines int) (frag
 	}
 
 	if c > maxFragLen {
-		err = fmt.Errorf("Length of keyword should be less than the length of the fragment!")
+		err = fmt.Errorf("Length of keyword should be less than the length of the fragment")
 		return
 	}
 
@@ -51,8 +51,8 @@ func getKeywordContext(text, keyword string, maxFragLen, desiredLines int) (frag
 		}
 
 		rBorder := ind + shift
-		if rBorder > len(text) {
-			rBorder = len(text)
+		if rBorder >= len(text) {
+			rBorder = len(text) - 1
 		}
 
 		crlfRightBorderInd = 0
@@ -117,19 +117,32 @@ func getKeywordContext(text, keyword string, maxFragLen, desiredLines int) (frag
 	return fragments, err
 }
 
+// ConvertFragmentToRunes convert keyword offset between bytes and runes
+func ConvertFragmentToRunes(text string, fragments []int) (result []int, err error) {
+	result = make([]int, 0, len(fragments))
+	frag := text[0:fragments[0]]
+	offset := utf8.RuneCountInString(frag)
+	result = append(result, offset)
+
+	for i := 0; i < len(fragments)-1; i++ {
+		if fragments[i] < len(text) && fragments[i+1] < len(text) {
+			frag = text[fragments[i]:fragments[i+1]]
+			offset += utf8.RuneCountInString(frag)
+			result = append(result, offset)
+		} else {
+			err = fmt.Errorf("Fragment indices out of range!")
+			return
+		}
+	}
+	return
+}
+
 func getKeywordIndices(text, keyword string) (indices []int) {
-	n := len(keyword) //utf8.RuneCountInString(keyword)
-	ind := strings.Index(text, keyword)
+	n := len(keyword)
 	indices = make([]int, 0, 32)
 
-	if ind == -1 {
-		return
-	}
-
-	pNext := ind + n
-	textSlice := text[pNext:]
-	indices = append(indices, ind)
-	cummSumm := pNext
+	cs := 0
+	textSlice := text
 
 	for {
 		ind := strings.Index(textSlice, keyword)
@@ -137,10 +150,10 @@ func getKeywordIndices(text, keyword string) (indices []int) {
 			break
 		}
 
-		indices = append(indices, cummSumm+ind)
-		pNext = ind + n
-		textSlice = textSlice[pNext:]
-		cummSumm += pNext
+		cs += ind
+		indices = append(indices, cs)
+		cs += n
+		textSlice = textSlice[ind+n:]
 	}
 	return
 }
@@ -296,3 +309,30 @@ func CheckFragment(text string, fragment Fragment, rules []RejectRule) (matchId 
 
 	return
 }
+
+/*
+func main() {
+	data, err := ReadFile("../files/61df7ce142f40433e63574846f7e56e861106efe")
+	if err != nil {
+		fmt.Printf("%s\n", err.Error())
+	}
+
+	text := string(data)
+	kw := []string{"rambler-co"}
+	p := TrimS(text)
+	ind := getKeywordIndices(p, kw[0])
+	fmt.Println(ind)
+
+	fragments, err := GenTextFragments(p, kw, 480, 640, 5)
+	fmt.Printf("%v\n", fragments)
+
+	for _, f := range fragments {
+		for i := 0; i < len(f.KeywordIndices); i += 2 {
+			f0 := f.KeywordIndices[i]
+			f1 := f.KeywordIndices[i+1]
+			fmt.Println(text[f0:f1])
+		}
+	}
+
+}
+*/
