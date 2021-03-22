@@ -6,7 +6,7 @@ HighlightedReport = Vue.component('h-report', {
         var rootChilds = []
 
         rootChilds.push(new_el("span", {}, text.substring(0, ind[0])))
-        for(var i=0; i < ind.length; i += 2)
+        for(var i=0 ;i < ind.length; i += 2)
         {
             rootChilds.push(new_el("span", {class : "highlight"}, text.substring(ind[i], ind[i+1])))
             if(i+2 < ind.length){
@@ -51,18 +51,34 @@ HeadNavigation = Vue.component('h-nav', {
 
 Pagination = Vue.component('p-nav', {
     props: ["pagination"],
-    template: `<nav aria-label="Page navigation example">
-                <ul class="pagination justify-content-center">
-                    <li class="page-item"><a class="page-link" v-on:click="$emit('goTo', 0)">&lt;&lt;</a></li>
-                    <li class="page-item"><a class="page-link" v-on:click="$emit('skipLeft')">&lt;</a></li>
-                    <li v-for="page in pagination.pages"  v-bind:class="[page.id == pagination.currentPage ? 'page-item active' : 'page-item']">
-                        <a  v-on:click="$emit('goTo', page.id)" class="page-link">
-                            {{page.id}}
-                        </a>
-                    </li> 
-                    <li class="page-item"><a class="page-link" v-on:click="$emit('skipRight')">&gt;</a></li>
-                    <li class="page-item"><a class="page-link" v-on:click="$emit('goTo', pagination.maxPage)">&gt;&gt;</a></li>
-                </ul></nav>`
+    template: `#pnav-template`
+})
+
+ModalWindow = Vue.component('v-modal', {
+    props: ["content"],
+    template: `
+    <transition name="modal">
+    <div class="modal-mask">
+      <div class="modal-wrapper">
+        <div class="modal-container">
+
+          <div class="modal-header">
+            <h3>Fragment Info</h3>
+            <button type="button" class="btn-close btn" aria-label="Close" @click="$emit('close')">X</button>
+          </div>
+
+          <div class="modal-body">
+            <f-info v-bind:info="content"></f-info>
+          </div>
+
+          <div class="modal-footer">
+ 
+          </div>
+        </div>
+      </div>
+    </div>
+  </transition>
+            `
 })
 
 RControl = Vue.component('r-control',{
@@ -76,96 +92,207 @@ RControl = Vue.component('r-control',{
             ]
         }
     },
-    template: `<div>
+    template: `<div class="btn-group">
                     <button v-for="button in buttons" v-on:click="$emit('markResult', [button.action, fragment.id])"  type="button" class="btn btn-outline-primary">{{button.name}}</button>
                </div>`
 })
 
 VItems = Vue.component('v-items',{
     props:["vitem"],
-    template: `
-            <div>
-                <label class="form-label"> {{vitem.name}}</label><br>
+    data: function(){
+        return{
+            selection: [],
+            copy:"",
+        }
+    },
+    methods:{
+        remove: function(){
+            this.$emit("remove",{id: this.vitem.id, selected:this.copy})
+        },
+        add: function(){
+            this.$emit("add",{id: this.vitem.id, selected:this.copy})
+        },
+        copyval: function(){
+            this.copy = this.selection[0]
+        }
+    },
+    template: `<div>
+                    <label class="form-label"> {{vitem.name}}</label><br>
+                    <div class="input-group mb-3">
+                        <select class="form-select select-item" multiple v-model:value="selection" v-on:change="copyval()">
+                            <option class="list-group-item" v-for="item in vitem.data"> {{ item }} </option>
+                        </select>
+                    </div>
+
                 <div class="input-group mb-3">
-                <select class="form-select select-item" multiple>
-                    <option class="list-group-item" v-for="item in vitem.data"> {{ item }} </option>
-                </select>
-                 </div>
-    
-                 <div class="input-group mb-3">
-                <input type="text" class="form-control input-item"></input>
-                <button type="button" class="btn btn-outline-primary">Add</button>
-                <button type="button" class="btn btn-outline-primary">Remove</button>
+                <input type="text" class="form-control input-item" v-model:value="copy"></input>
+                <div class="btn-group">
+                    <button type="button" class="btn btn-outline-primary" v-on:click="add()">Add</button>
+                    <button type="button" class="btn btn-outline-primary" v-on:click="remove()">Remove</button>
+                </div>
                 </div>
             </div>`
 })
 
+FragmentInfo = Vue.component('f-info', {
+    props : {
+        info :{
+            name: {
+                type: String
+            },
+            path:{
+                type: String
+            },
+            html_url: {
+                type: String
+            },
+            repository:{
+                name : {
+                    type: String
+                },
+                owner:{
+                    login:{
+                        type: String
+                    },
+                    url:{
+                        type: String
+                    }
+                }
+            }
+        }
+    },
+    template: `
+    <div>
+    <ul>
+        <li><b>Filename</b>: {{info.name}}</li>
+        <li><b>Full path</b>: {{info.path}}</li>
+        <li><b>Link: </b><a v-bind:href="info.html_url" target="_blank">{{info.name}}</a></li>
+        <li><b>Repository:</b> {{info.repository.name}}</li>
+        <li><b>Owner:</b> <a v-bind:href="info.repository.owner.url" target="_blank"> {{info.repository.owner.login}}</a></li>
+    </ul>
+    </div>
+    `
+})
 Settings = Vue.component('settings', {
     data : function(){
-        return {info: {}}
+        return {
+            info: {
+                db_credentials : {name: "", database: "", password: ""},
+                github : {tokens :[],  langs :[]},
+                globals : {keywords : []}
+            },
+            ruleNames: [],
+            rules: {},
+            selected: "",
+            teststr: "",
+        }
     },
     methods:{
-        getInfo(){
-            var requestURI = '/api/info'
+        getInfo: function(){
+            var requestURI = '/api/info/settings'
             axios.get(requestURI)
                 .then(response => {
                     this.info = response.data
                     console.log(this.info)
                 })
                 .catch(error => {
-                    console.log(error);
+                    console.log(error)
                 })
+        },
+        getRules: function(){
+            var requestURI = '/api/info/rules'
+            axios.get(requestURI)
+                .then(response => {
+                    this.rules = response.data
+                    for(var rule in rules){
+                        this.ruleNames.push(rule.re)
+                    }
+                    console.log(this.rules)
+                })
+                .catch(error => {
+                    console.log(error)
+                })
+        },
+        add: function(data){
+            var itemId = data.id
+            var selected = data.selected
+
+            if(itemId == 1){
+                this.info.github.tokens.push(selected)
+            } else if (itemId == 2){
+                this.info.github.langs.push(selected)
+            } else if (itemId == 3){
+                this.info.globals.keywords.push(selected)
+            } else if (itemId == 4){
+                this.createRule(selected)
+            }
+        },
+        remove: function(data){
+            var itemId = data.id
+            var selected = data.selected
+
+            if(itemId == 1){
+                elId = this.info.github.tokens.indexOf(selected)
+                if(elId != -1){
+                    this.info.github.tokens.splice(elId)
+                }
+            } else if (itemId == 2){
+                elId = this.info.github.langs.indexOf(selected)
+                if(elId != -1){
+                    this.info.github.langs.splice(elId)
+                }
+            } else if (itemId == 3){
+                elId = this.info.globals.keywords.indexOf(selected)
+                if(elId != -1){
+                    this.info.globals.keywords.splice(elId)
+                }
+            } else if (itemId == 4){
+                this.removeRule(selected)
+            }
+        },
+        update: function(){
+            console.log(this.info)
+            var requestURI = "/api/update/settings"
+            axios.post(requestURI, this.info)
+        },
+
+        createRule: function(selected){
+            var requestURI = "/api/update/rule?action=create"
+            if(this.ruleNames.indexOf(selected) != -1){
+                return
+            }
+
+            axios.post(requestURI, {"re": selected, "test": this.teststr}).then(response => {
+                if(response.status == 200){
+                    this.ruleNames.push(selected)
+                } else {
+                    this.teststr = "invalid regexp"
+                }
+            })
+        },
+        removeRule: function(selected){
+            for(rule in this.rules){
+                if(selected == rule.re){
+                    var requestURI = "/api/update/rule?action=remove&ruleid="+rule.id
+                    axios.post(requestURI, {}).then(response => {
+                        if (response.status == 200){
+                            elId = this.ruleNames.indexOf(selected)
+                            
+                            if(elId != -1){
+                                this.regexp.splice(elId)
+                            }
+                        }
+                    })
+                }
+            }
         }
+
     },
     created : function(){
         this.getInfo()
+        //this.getRules()
     },
-    template: `
-    <div>
-        <br/><br/><br/><br/>
-        
-        <table class="table">
-        <tbody><tr><td>
-        <div class="container">
-            <h3>Database Settings</h3>
-            <label class="form-label"> Database:</label><br>
-            <div class="input-group mb-3">
-                <input type="text" class="form-control" 
-                            placeholder="Database" 
-                            aria-label="Database" 
-                            v-model="info.db_redentials.database">
-            </div>
-            <label class="form-label"> Username:</label><br>
-            <div class="input-group mb-3">             
-                <input type="text" class="form-control" 
-                placeholder="Username" 
-                aria-label="Username" 
-                v-model="info.db_redentials.name">
-            </div>
-
-            <label class="form-label"> Password:</label><br>
-            <div class="input-group mb-3"> 
-                <input type="text" class="form-control" placeholder="Username" aria-label="Password" v-model="info.db_redentials.password">
-            </div>
-            <button type="button" class="btn btn-outline-primary">Update</button>
-        </div>
-        </td>
-
-        <td>
-        <div class="container">
-            <h3> Github Settings </h3>
-            <v-items v-bind:vitem="{name:'Tokens', data:info.github.tokens}"></v-items>
-            <v-items v-bind:vitem="{name:'Languages', data:info.github.langs}"></v-items>
-        </div>
-        </td></tr> <tr>
-            <td colspan="2">
-            <h3>Global Settings</h3>
-            <v-items v-bind:vitem="{name:'Keywords', data:info.globals.keywords}"></v-items>
-            </td>
-        </tr>
-        </tbody></table>
-    </div>
-    `
+    template: "#settings-template"
 })
 
 
@@ -180,9 +307,14 @@ Fragments = Vue.component('r-fragments', {
                 maxPage: 0,
                 currentPage : 0
             },
+            modal : {
+                content: "",
+                show : false
+            },
             reportStatuses:[
                 {name: "New",    value: "new"},
                 {name: "Closed", value: "closed"},
+                {name: "Verified", value: "verified"}
             ],
             availableLimits:[10, 20, 50, 100],
             reportStatus: "new",
@@ -190,43 +322,7 @@ Fragments = Vue.component('r-fragments', {
         } 
     },
     
-    template: `<div><br/><br/>
-                <table class="table table-bordered fixed">
-                <thead>
-                <tr> <th>
-                    Report status: 
-                    <select v-model="reportStatus" v-on:change="updatePage()">
-                        <option v-for="status in reportStatuses" 
-                                v-bind:value="status.value" 
-                                v-bind:selected="[status.value == reportStatus]">
-                                {{status.name}}
-                        </option>
-                    </select>
-
-                    Limit:
-                    <select v-model="limit" v-on:change="updatePage()">
-                        <option v-for="lim in availableLimits" 
-                                v-bind:value="lim"
-                                v-bind:selected="[lim == 10]"> 
-                                {{ lim }}
-                        </option>
-                    </select>
-                </th></tr>
-                </thead>
-                <tbody>
-                        <tr v-for="fragment in fragments">
-                            <td style="white-space:pre; width: 900px; font-size: 10; word-break: break-all;"> 
-                                <h-report  v-bind:fragment="fragment" v-bind:key="fragment.id"></h-report>
-                                <r-control v-bind:fragment="fragment" v-on:markResult="markResult($event)"></r-control>
-                            </td>
-                        </tr>
-                </tbody>
-                </table>
-                <p-nav v-bind:pagination="pagination" 
-                       v-on:goTo="goTo($event)" 
-                       v-on:skipLeft="skipLeft"
-                       v-on:skipRight="skipRight"></p-nav>
-                </div>`,
+    template: "#fragments-template",
     methods: {
             updatePage: function () {
             offset = this.pagination.currentPage*this.limit
@@ -240,21 +336,89 @@ Fragments = Vue.component('r-fragments', {
                     this.updatePagination(nResults)
                 })
                 .catch(error => {
-                    console.log(error);
+                    console.log(error)
                 })
+            },
+            showInfo(fragmentId){
+                var fragment = {}
+                for(var i=0;i < this.fragments.length;i++){
+                    if(this.fragments[i].id == fragmentId){
+                        fragment = this.fragments[i]
+                        break
+                    }
+                }
+                
+                var requestURI = '/api/info/fragment?id=' + fragmentId
+                
+                axios.get(requestURI)
+                    .then(response => {
+                        this.modal.content = response.data
+                    })
+                    .catch(error => {
+                        console.log(error)
+                    })
+
+                this.modal.show = true
             },
         
         markResult: function(data){
             var fragment_id = data[1]
             var status = data[0]
+            var requestURI = "/api/mark/" + this.pagetype +"/" + fragment_id + "/"
+
+            console.log(data)
+            if(status == 0){
+                this.showInfo(fragment_id)
+                return
+            } 
+            var fid = -1
+            var rid = -1
+
+            for(var i = 0 ;i < this.fragments.length; i++){
+                if (this.fragments[i].id == fragment_id){
+                    fid = i
+                    rid = this.fragments[i].report_id
+                    break
+                }
+            }
+
+            console.log("fid: " + fid +" rid: "+rid)
 
             if(status == 1){
-                for(var i = 0; i < this.fragments.length;i++){
-                    if (this.fragments[i].id == fragment_id){
-                        this.fragments.splice(i, 1)
-                        break
+                requestURI += "false"
+                console.log(requestURI)
+                axios.get(requestURI).then(respons=>{
+                    if(respons.status == 200 && fid != -1){
+                        console.log("Yeah")
+                        this.fragments.splice(fid, 1)
+                        if(this.fragments.length == 0){
+                            this.updatePage()
+                        }
+                        return
                     }
-                }
+                })
+            } else if(status == 2 && rid != -1){
+                console.log(requestURI)
+                requestURI += "valid"
+                axios.get(requestURI).then(
+                    response => {
+                        if(response.status == 200){
+                            var splids = []
+                            for(var i = 0 ;i < this.fragments.length; i++){
+                                if(this.fragments[i].report_id == rid){
+                                    splids.push(i)
+                                }
+                            }
+                            var newFragments = []
+                            for(var i = 0 ;i < this.fragments.length; i++){
+                                if(splids.indexOf(i) == -1){
+                                    newFragments.push(this.fragments[i])
+                                }
+                            }
+                            this.fragments = newFragments
+                        }
+                    }
+                )
             }
         },
 
@@ -282,7 +446,7 @@ Fragments = Vue.component('r-fragments', {
             }
 
             var pagination = []
-            for(var i=st; i < end;i++){
+            for(var i=st; i < end; i++){
                 pagination.push({id: i})
             }
 
@@ -318,7 +482,7 @@ const router = new VueRouter({
     routes :[ 
         {path: "/", component:Fragments, props:{pagetype:"github"}},
         {path: "/github", component:Fragments, props:{pagetype:"github"}},
-        {path: "/gist",  component:Fragments, props:{pagetype:"github"}},
+        {path: "/gist",  component:Fragments, props:{pagetype:"gist"}},
         {path: "/settings",  component:Settings }
     ],
     mode: "history"
@@ -337,6 +501,8 @@ var app = new Vue({
         'fragments' : Fragments,
         'settings' : Settings,
         'v-items' : VItems,
+        'v-modal':ModalWindow,
+        'f-info':FragmentInfo,
     },
     router: router
 })

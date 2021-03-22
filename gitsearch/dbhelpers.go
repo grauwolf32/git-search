@@ -150,7 +150,7 @@ func (gitDBManager *GitDBManager) selectReportByStatus(status string) (results c
 func (gitDBManager *GitDBManager) selectReportById(id int) (gitReport GitReport, err error) {
 	var reportJsonb []byte
 
-	reportQuery := "SELECT id, status, keyword, info, time FROM github_reports"
+	reportQuery := "SELECT id, status, keyword, info, time FROM github_reports "
 	reportQuery += "WHERE id=$1;"
 
 	row := gitDBManager.Database.QueryRow(reportQuery, id)
@@ -229,14 +229,14 @@ func (gitDBManager *GitDBManager) QueryWebReport(limit, offset int, status strin
 
 // ChangeFragmentStatus Change fragment status (reject_id: 0: new, 1:manual, 2: verified, 3:verified_autoremove, n: regexp)
 func (gitDBManager *GitDBManager) ChangeFragmentStatus(RejectID, FragmentID int) (err error) {
-	query := "UPDATE report_fragments SET reject_id='$1' where id='$2';"
+	query := "UPDATE report_fragments SET reject_id=$1 where id=$2;"
 	_, err = gitDBManager.Database.Exec(query, RejectID, FragmentID)
 	return
 }
 
 func (gitDBManager *GitDBManager) GetReportFragmentCount(ReportID, RejectID int) (count int, err error) {
 	query := "SELECT COUNT(id) FROM report_fragments "
-	query += "WHERE report_id='$1' AND reject_id='$2';"
+	query += "WHERE report_id=$1 AND reject_id=$2;"
 
 	row := gitDBManager.Database.QueryRow(query, ReportID, RejectID)
 	err = row.Scan(&count)
@@ -245,7 +245,7 @@ func (gitDBManager *GitDBManager) GetReportFragmentCount(ReportID, RejectID int)
 
 func (gitDBManager *GitDBManager) GetReportFragments(ReportID, RejectID int) (results chan TextFragment, err error) {
 	query := "SELECT id, content, report_id, reject_id, shahash, keywords FROM report_fragments "
-	query += "WHERE report_id='$1' AND reject_id='$2';"
+	query += "WHERE report_id=$1 AND reject_id=$2;"
 
 	rows, err := gitDBManager.Database.Query(query, ReportID, RejectID)
 	results = make(chan TextFragment, 512)
@@ -274,7 +274,7 @@ func (gitDBManager *GitDBManager) GetReportFragments(ReportID, RejectID int) (re
 }
 
 func (gitDBManager *GitDBManager) getFragmentReportId(fragmentId int) (reportId int, err error) {
-	query := "SELECT report_id FROM report_fragments WHERE id='$1';"
+	query := "SELECT report_id FROM report_fragments WHERE id=$1;"
 	row := gitDBManager.Database.QueryRow(query, fragmentId)
 	err = row.Scan(&reportId)
 	return

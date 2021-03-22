@@ -110,9 +110,14 @@ func getBodyReader(resp *http.Response) (bodyReader io.ReadCloser, err error) {
 	return bodyReader, err
 }
 
-func GetGitReports(status string, limit, offset int) (WebUIResult, error) {
+func GetGitReports(status string, limit, offset int) (report WebUIResult, err error) {
 	dbManager := GitDBManager{database.DB}
-	report, err := dbManager.QueryWebReport(limit, offset, "new", 0)
+
+	if status == "new" {
+		report, err = dbManager.QueryWebReport(limit, offset, "new", 0)
+	} else if status == "closed" {
+		report, err = dbManager.QueryWebReport(limit, offset, "new", 1)
+	}
 
 	if err != nil {
 		fmt.Println(err.Error())
@@ -156,6 +161,18 @@ func MarkFragment(fragmentId, status int) (err error) {
 		err = dbManager.updateStatus(reportId, "verified")
 	}
 
+	return
+}
+
+func FragmentInfo(fragmentId int) (report GitReport, err error) {
+	dbManager := GitDBManager{database.DB}
+	reportId, err := dbManager.getFragmentReportId(fragmentId)
+
+	if err != nil {
+		return
+	}
+
+	report, err = dbManager.selectReportById(reportId)
 	return
 }
 

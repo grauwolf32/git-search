@@ -3,6 +3,7 @@
 <head>
     <title>Megascan Leak Monitor</title>
     <link rel="stylesheet" href ="static/css/styles.css">
+    <link rel="stylesheet" href ="static/css/modal.css">
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/css/bootstrap.min.css" integrity="sha384-9aIt2nRpC12Uk9gS9baDl411NQApFmC26EwAOH8WgZl5MYYxFfc+NcPb1dKGj7Sk" crossorigin="anonymous">    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     <script src="https://unpkg.com/vue"></script>
@@ -24,14 +25,127 @@
 table.fixed { table-layout:fixed; }
 
 .select-item{
-  width: 500px;
+  width: 30em;
   max-width: 80%;
 }
 .input-item{
-  width: 300px;
+  width: 25em;
   max-width: 60%;
 }
-    </style>
+</style>
+    <script type="text/x-template" id="settings-template">
+      <div>
+        <br/><br/><br/><br/>
+        <table class="table">
+        <tbody><tr><td>
+        <div class="container">
+            <h3>Account Settings</h3>
+            <label class="form-label"> Username:</label><br>
+            <div class="input-group mb-3">             
+                <input type="text" class="form-control" 
+                placeholder="Username" 
+                aria-label="Username">
+            </div>
+            <label class="form-label"> Password:</label><br>
+            <div class="input-group mb-3"> 
+                <input type="password" class="form-control" aria-label="Password">
+            </div>
+        </div>
+        </td><td>
+            <div class="container">
+                <h3> Github Settings </h3>
+                <v-items
+                    v-bind:vitem="{name:'Tokens', data:info.github.tokens, id:1}"
+                    v-on:add="add($event)"
+                    v-on:remove="remove($event)">
+                </v-items>
+                <v-items 
+                    v-bind:vitem="{name:'Languages', data:info.github.langs, id:2}"
+                    v-on:add="add($event)"
+                    v-on:remove="remove($event)">
+                </v-items>
+            </div>
+        </td></tr><tr>
+        <tr><td colspan="2"><h3>Global Settings</h3></td></tr>
+        <td>
+            <v-items 
+                v-bind:vitem="{name:'Keywords', data:info.globals.keywords, id:3}"
+                v-on:add="add($event)"
+                v-on:remove="remove($event)">
+            </v-items>
+        </td>
+        <td>
+            <label class="form-label"> Regexp test:</label>
+            <input type="text" class="form-control" v-model="teststr" placeholder="mailto:test@rambler-co.ru" aria-label="Regexp test">
+            <br>
+            <v-items 
+                v-bind:vitem="{name:'Rejection rules', data:[], id:4}"
+                v-on:add="add($event)"
+                v-on:remove="remove($event)">
+            </v-items>
+        </td></tr>
+        <tr><td colspan="2"><button type="button" class="btn btn-primary" v-on:click="update()">Update</button></td></tr>
+        </tbody></table>
+    </div>
+</script>
+
+<script type="text/x-template" id="fragments-template">
+  <div><br/><br/>
+    <v-modal v-if="modal.show" v-bind:content="modal.content" v-on:close="modal.show=false"></v-modal>
+    <table class="table table-bordered fixed">
+    <thead>
+    <tr> <th>
+        Report status: 
+        <select v-model="reportStatus" v-on:change="updatePage()">
+            <option v-for="status in reportStatuses" 
+                    v-bind:value="status.value" 
+                    v-bind:selected="[status.value == reportStatus]">
+                    {{status.name}}
+            </option>
+        </select>
+
+        Limit:
+        <select v-model="limit" v-on:change="updatePage()">
+            <option v-for="lim in availableLimits" 
+                    v-bind:value="lim"
+                    v-bind:selected="[lim == 10]"> 
+                    {{ lim }}
+            </option>
+        </select>
+    </th></tr>
+    </thead>
+    <tbody>
+            <tr v-for="fragment in fragments">
+                <td style="white-space:pre width: 900px font-size: 10 word-break: break-all"> 
+                    <h-report  v-bind:fragment="fragment" v-bind:key="fragment.id"></h-report>
+                    <r-control v-bind:fragment="fragment" v-on:markResult="markResult($event)"></r-control>
+                </td>
+            </tr>
+    </tbody>
+    </table>
+    <p-nav v-bind:pagination="pagination" 
+           v-on:goTo="goTo($event)" 
+           v-on:skipLeft="skipLeft"
+           v-on:skipRight="skipRight"></p-nav>
+    </div>
+</script>
+
+<script type="text/x-template" id="pnav-template">
+  <nav aria-label="Page navigation example">
+    <ul class="pagination justify-content-center">
+      <li class="page-item"><a class="page-link" v-on:click="$emit('goTo', 0)">&lt&lt</a></li>
+      <li class="page-item"><a class="page-link" v-on:click="$emit('skipLeft')">&lt</a></li>
+      
+      <li v-for="page in pagination.pages"  v-bind:class="[page.id == pagination.currentPage ? 'page-item active' : 'page-item']">
+        <a  v-on:click="$emit('goTo', page.id)" class="page-link">
+                            {{page.id}}
+        </a>
+      </li> 
+      <li class="page-item"><a class="page-link" v-on:click="$emit('skipRight')">&gt</a></li>
+      <li class="page-item"><a class="page-link" v-on:click="$emit('goTo', pagination.maxPage)">&gt&gt</a></li>
+    </ul>
+  </nav>
+</script>
 </head>
 
 <body>

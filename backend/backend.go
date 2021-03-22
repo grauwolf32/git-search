@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"../commons"
 	"../config"
 	"../database"
 	"../gitsearch"
@@ -79,7 +80,8 @@ func StartBack(db *sql.DB) {
 
 	e.GET("/api/get/:datatype/:status", getReports, loginRequired)
 	e.GET("/api/mark/:datatype/:fragment_id/:status", markResult, loginRequired)
-	e.GET("/api/info", getInfo, loginRequired)
+	e.POST("/api/update/:type", updateData, loginRequired)
+	e.GET("/api/info/:type", getInfo, loginRequired)
 	e.GET("/api/regexp", getRegexp, loginRequired)
 
 	e.GET("/login", loginPage)
@@ -115,7 +117,7 @@ func markResult(c echo.Context) (err error) {
 
 	err = gitsearch.MarkFragment(fragmentId, status)
 	if err != nil {
-		return c.String(500, "Server error!")
+		return c.String(500, err.Error())
 	}
 
 	return c.String(200, "OK")
@@ -125,11 +127,67 @@ func getRegexp(c echo.Context) (err error) {
 	return c.String(404, "Not implemented")
 }
 
+func updateData(c echo.Context) (err error) {
+	switch c.Param("type") {
+	case "settings":
+		{
+			var newSettings config.InitStruct
+			err = c.Bind(&newSettings)
+
+			if err != nil {
+				return c.String(404, err.Error())
+			}
+
+			err = commons.UpdateSettings(newSettings)
+			if err != nil {
+				return c.String(404, err.Error())
+			}
+
+			return c.String(200, "OK")
+		}
+
+	default:
+		{
+			return c.String(404, "Not found")
+		}
+	}
+}
+
 func getInfo(c echo.Context) (err error) {
-	info := config.Settings
-	info.AdminCredentials.Password = ""
-	info.DBCredentials.Password = ""
-	return c.JSON(200, info)
+	switch c.Param("type") {
+	case "settings":
+		{
+			info := config.Settings
+			info.AdminCredentials.Password = ""
+			info.DBCredentials.Password = ""
+			return c.JSON(200, info)
+		}
+
+	case "fragment":
+		{
+			fragmentIdParam := c.FormValue("id")
+
+			if fragmentIdParam == "" {
+				return c.String(404, "Fragment ID required")
+			}
+
+			fragmentId, err := strconv.Atoi(fragmentIdParam)
+
+			if err != nil {
+				return c.String(404, "Invalid Fragment ID")
+			}
+
+			report, err := gitsearch.FragmentInfo(fragmentId)
+			if err != nil {
+				return c.String(404, err.Error())
+			}
+
+			return c.JSON(200, report.SearchItem)
+		}
+
+	default:
+		return c.String(404, "Not Found")
+	}
 }
 
 func getReports(c echo.Context) (err error) {
