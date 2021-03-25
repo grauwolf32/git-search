@@ -82,7 +82,8 @@ func StartBack(db *sql.DB) {
 	e.GET("/api/mark/:datatype/:fragment_id/:status", markResult, loginRequired)
 	e.POST("/api/update/:type", updateData, loginRequired)
 	e.GET("/api/info/:type", getInfo, loginRequired)
-	e.GET("/api/regexp", getRegexp, loginRequired)
+	e.GET("/api/regexp/:type", updateRegexp, loginRequired)
+	e.POST("/api/regexp/:type", updateRegexp, loginRequired)
 
 	e.GET("/login", loginPage)
 	e.POST("/login", handleLogin)
@@ -123,8 +124,51 @@ func markResult(c echo.Context) (err error) {
 	return c.String(200, "OK")
 }
 
-func getRegexp(c echo.Context) (err error) {
-	return c.String(404, "Not implemented")
+func updateRegexp(c echo.Context) (err error) {
+	switch c.Param("type") {
+	case "get":
+		{
+			rules, err := commons.GetRegexps()
+			if err != nil {
+				return c.String(500, err.Error())
+			}
+
+			return c.JSON(200, rules)
+		}
+	case "add":
+		{
+			var query gitsearch.RegexpUpdateQuery
+			err = c.Bind(&query)
+			if err != nil {
+				return c.String(500, err.Error())
+			}
+
+			status, err := commons.InsertRegexp(query)
+			if err != nil {
+				return c.String(500, err.Error())
+			}
+			if !status {
+				return c.String(404, "Failed")
+			}
+
+			return c.String(200, "OK")
+		}
+	case "remove":
+		{
+			ruleIdParam := c.FormValue("ruleid")
+			ruleId, err := strconv.Atoi(ruleIdParam)
+
+			if err != nil {
+				return c.String(500, err.Error())
+			}
+			err = commons.RemoveRegexp(ruleId)
+
+			if err != nil {
+				return c.String(500, err.Error())
+			}
+		}
+	}
+	return c.String(404, "Not found")
 }
 
 func updateData(c echo.Context) (err error) {

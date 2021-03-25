@@ -257,7 +257,7 @@ Settings = Vue.component('settings', {
         },
 
         createRule: function(selected){
-            var requestURI = "/api/update/rule?action=create"
+            var requestURI = "/api/regexp/add"
             if(this.ruleNames.indexOf(selected) != -1){
                 return
             }
@@ -273,7 +273,7 @@ Settings = Vue.component('settings', {
         removeRule: function(selected){
             for(rule in this.rules){
                 if(selected == rule.re){
-                    var requestURI = "/api/update/rule?action=remove&ruleid="+rule.id
+                    var requestURI = "/api/regexp/remove&ruleid="+rule.id
                     axios.post(requestURI, {}).then(response => {
                         if (response.status == 200){
                             elId = this.ruleNames.indexOf(selected)
@@ -471,10 +471,16 @@ Fragments = Vue.component('r-fragments', {
             this.goTo(this.pagination.currentPage-10)
         }
     },
+    watch: {
+        $route : function(){
+            console.log("Changed")
+            this.updatePage()
+        }
+    },
     created: function(){
         this.updatePage()
         return
-    }
+    },
 })
 
 

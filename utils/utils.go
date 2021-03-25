@@ -226,6 +226,7 @@ func joinFragments(f1, f2 *Fragment) Fragment {
 }
 
 // UnionFragments merge fragments that are close to each other
+// Merge ?
 func UnionFragments(fragments []Fragment, maxLen int) ([]Fragment, error) {
 	newFragments := make([]Fragment, 0, len(fragments))
 	usedFragments := make(map[int]bool)

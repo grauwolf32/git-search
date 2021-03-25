@@ -44,7 +44,38 @@ func (gitDBManager *GitDBManager) getRules() (rules []textutils.RejectRule, err 
 	return
 }
 
-func (gitDBManager *GitDBManager) insert(report GitReport) error {
+func (gitDBManager *GitDBManager) GetRulesWeb() (rules []RuleWeb, err error) {
+	query := "SELECT id, expr FROM rejection_rules WHERE expr != '';"
+	rows, err := gitDBManager.Database.Query(query)
+	rules = make([]RuleWeb, 0, 16)
+
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var rule RuleWeb
+		err = rows.Scan(&rule.Id, &rule.Re)
+		if err != nil {
+			return
+		}
+	}
+	return
+}
+
+func (gitDBManager *GitDBManager) InsertRule(updateQuery RegexpUpdateQuery) (err error) {
+	query := "INSERT INTO rejection_rules (rulename, expr, example) VALUES ($1, $2, $3);"
+	_, err = gitDBManager.Database.Exec(query, "regex", updateQuery.Regexp, updateQuery.Test)
+	return
+}
+
+func (gitDBManager *GitDBManager) RemoveRule(ruleId int) (err error) {
+	query := "DELETE FROM rejection_rules WHERE id=$1;"
+	_, err = gitDBManager.Database.Exec(query, ruleId)
+	return
+}
+
+func (gitDBManager *GitDBManager) insert(report GitReport) (err error) {
 	item := report.SearchItem
 	info, err := json.Marshal(item)
 
@@ -61,7 +92,7 @@ func (gitDBManager *GitDBManager) insert(report GitReport) error {
 		item.GitUrl,
 		report.Time)
 
-	return err
+	return
 }
 
 func (gitDBManager *GitDBManager) insertTextFragment(report GitReport, fragment textutils.Fragment, text string, rejectId int) error {

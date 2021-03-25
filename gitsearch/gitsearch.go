@@ -75,6 +75,16 @@ type TextFragment struct {
 	Id             int    `json:"id"`
 }
 
+type RuleWeb struct {
+	Id int    `json:"id"`
+	Re string `json:"re"`
+}
+
+type RegexpUpdateQuery struct {
+	Regexp string `json:"re"`
+	Test   string `json:"test"`
+}
+
 func pError(err error) (message string) {
 	errMessage := err.Error()
 	_, file, line, _ := runtime.Caller(1)

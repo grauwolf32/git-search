@@ -1,21 +1,14 @@
 package commons
 
 import (
-	"database/sql"
 	"encoding/json"
 	"io/ioutil"
+	"regexp"
 
 	"../config"
+	"../database"
+	"../gitsearch"
 )
-
-type dbManager struct {
-	Database *sql.DB
-}
-
-type RegexpUpdateQuery struct {
-	Regexp string `json:"re"`
-	Test   string `json:"test"`
-}
 
 // UpdateSettings : updates settings in Config.json
 func UpdateSettings(updatedSettings config.InitStruct) (err error) {
@@ -42,6 +35,29 @@ func UpdateSettings(updatedSettings config.InitStruct) (err error) {
 	return
 }
 
-func UpdateRegexp(query RegexpUpdateQuery) {
+func InsertRegexp(query gitsearch.RegexpUpdateQuery) (status bool, err error) {
+	if status, err = regexp.Match(query.Regexp, []byte(query.Test)); err != nil {
+		return
+	}
+
+	dbManager := gitsearch.GitDBManager{database.DB}
+	err = dbManager.InsertRule(query)
+	if err != nil {
+		return
+	}
+
+	status = true
+	return
+}
+
+func RemoveRegexp(regexpId int) (err error) {
+	dbManager := gitsearch.GitDBManager{database.DB}
+	err = dbManager.RemoveRule(regexpId)
+	return
+}
+
+func GetRegexps() (rules []gitsearch.RuleWeb, err error) {
+	dbManager := gitsearch.GitDBManager{database.DB}
+	rules, err = dbManager.GetRulesWeb()
 	return
 }
