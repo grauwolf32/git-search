@@ -153,7 +153,7 @@ func MarkFragment(fragmentId, status int) (err error) {
 
 	if fragmentCount == 0 && status == 1 { // 1: manual rejection
 		status := "false"
-		err = dbManager.updateStatus(reportId, status)
+		err = dbManager.UpdateStatus(reportId, status)
 		return
 	}
 
@@ -168,7 +168,7 @@ func MarkFragment(fragmentId, status int) (err error) {
 			dbManager.ChangeFragmentStatus(3, fragment.Id) // 3: fragment auto remove after verify
 		}
 
-		err = dbManager.updateStatus(reportId, "verified")
+		err = dbManager.UpdateStatus(reportId, "verified")
 	}
 
 	return

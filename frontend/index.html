@@ -79,7 +79,7 @@ table.fixed { table-layout:fixed; }
             <input type="text" class="form-control" v-model="teststr" placeholder="mailto:test@rambler-co.ru" aria-label="Regexp test">
             <br>
             <v-items 
-                v-bind:vitem="{name:'Rejection rules', data:[], id:4}"
+                v-bind:vitem="{name:'Rejection rules', data:ruleNames, id:4}"
                 v-on:add="add($event)"
                 v-on:remove="remove($event)">
             </v-items>

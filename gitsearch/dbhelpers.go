@@ -15,7 +15,7 @@ type GitDBManager struct {
 	Database *sql.DB
 }
 
-func (gitDBManager *GitDBManager) getRules() (rules []textutils.RejectRule, err error) {
+func (gitDBManager *GitDBManager) GetRules() (rules []textutils.RejectRule, err error) {
 	query := "SELECT id, expr FROM rejection_rules WHERE expr != '';"
 	rows, err := gitDBManager.Database.Query(query)
 	rules = make([]textutils.RejectRule, 0, 16)
@@ -56,9 +56,12 @@ func (gitDBManager *GitDBManager) GetRulesWeb() (rules []RuleWeb, err error) {
 	for rows.Next() {
 		var rule RuleWeb
 		err = rows.Scan(&rule.Id, &rule.Re)
+
 		if err != nil {
 			return
 		}
+
+		rules = append(rules, rule)
 	}
 	return
 }
@@ -119,7 +122,7 @@ func (gitDBManager *GitDBManager) insertTextFragment(report GitReport, fragment 
 	return err
 }
 
-func (gitDBManager *GitDBManager) updateStatus(reportId int, status string) error {
+func (gitDBManager *GitDBManager) UpdateStatus(reportId int, status string) error {
 	_, err := gitDBManager.Database.Exec("UPDATE github_reports SET status=$1 WHERE id=$2;",
 		status,
 		reportId)
@@ -150,7 +153,7 @@ func (gitDBManager *GitDBManager) check(item GitSearchItem) (exist bool, err err
 	return
 }
 
-func (gitDBManager *GitDBManager) selectReportByStatus(status string) (results chan GitReport, err error) {
+func (gitDBManager *GitDBManager) SelectReportByStatus(status string) (results chan GitReport, err error) {
 	rows, err := gitDBManager.Database.Query("SELECT id, status, keyword, info, time FROM github_reports WHERE status=$1 ORDER BY time;", status)
 	results = make(chan GitReport, 512)
 

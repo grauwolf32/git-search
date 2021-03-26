@@ -200,14 +200,15 @@ Settings = Vue.component('settings', {
                 })
         },
         getRules: function(){
-            var requestURI = '/api/info/rules'
+            var requestURI = '/api/regexp/get'
+            var ruleNames = []
             axios.get(requestURI)
                 .then(response => {
                     this.rules = response.data
-                    for(var rule in rules){
-                        this.ruleNames.push(rule.re)
+                    for(var i=0; i < this.rules.length;i++){
+                        ruleNames.push(this.rules[i].re)
                     }
-                    console.log(this.rules)
+                    this.ruleNames = ruleNames
                 })
                 .catch(error => {
                     console.log(error)
@@ -290,7 +291,7 @@ Settings = Vue.component('settings', {
     },
     created : function(){
         this.getInfo()
-        //this.getRules()
+        this.getRules()
     },
     template: "#settings-template"
 })

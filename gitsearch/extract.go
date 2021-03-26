@@ -16,7 +16,7 @@ func gitExtractionWorker(ctx context.Context, id int, jobchan chan GitReport, er
 	keywords := config.Settings.Globals.Keywords
 	dbManager := GitDBManager{database.DB}
 
-	rejectRules, err := dbManager.getRules()
+	rejectRules, err := dbManager.GetRules()
 	if err != nil {
 		errchan <- pError(err)
 		return
@@ -82,7 +82,7 @@ func gitExtractionWorker(ctx context.Context, id int, jobchan chan GitReport, er
 			errchan <- pError(err)
 			continue
 		}
-		err = dbManager.updateStatus(report.Id, "fragmented")
+		err = dbManager.UpdateStatus(report.Id, "fragmented")
 	}
 }
 
@@ -90,7 +90,7 @@ func GitExtractFragments(ctx context.Context, nWorkers int, errchan chan string)
 	dbManager := GitDBManager{database.DB}
 
 	status := "fetched"
-	processingReports, err := dbManager.selectReportByStatus(status)
+	processingReports, err := dbManager.SelectReportByStatus(status)
 	if err != nil {
 		fmt.Printf("%s\n", pError(err))
 		return

@@ -69,7 +69,7 @@ func processReportJob(report GitReport, resp *http.Response, errchan chan string
 	}
 
 	dbManager := GitDBManager{database.DB}
-	err = dbManager.updateStatus(report.Id, "fetched")
+	err = dbManager.UpdateStatus(report.Id, "fetched")
 
 	if err != nil {
 		errchan <- pError(err)
@@ -128,7 +128,7 @@ func GitFetch(ctx context.Context, errchan chan string) (err error) {
 	dbManager := GitDBManager{database.DB}
 
 	status := "processing"
-	processingReports, err := dbManager.selectReportByStatus(status)
+	processingReports, err := dbManager.SelectReportByStatus(status)
 
 	if err != nil {
 		fmt.Printf("%s\n", pError(err))
