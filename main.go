@@ -112,7 +112,7 @@ func main() {
 		}
 	}(ctx, extractStart, extractDone, errchan, &wg)
 
-	// searchStart <- struct{}{}
+	//searchStart <- struct{}{}
 
 	go func() {
 		select {
